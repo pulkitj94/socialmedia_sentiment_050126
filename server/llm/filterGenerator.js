@@ -168,14 +168,64 @@ PLATFORM NAME HANDLING:
 - "instagram", "INSTAGRAM", "Instagram" will all match the same data
 - For ads platforms: "Facebook Ads", "Google Ads", "Instagram Ads", etc.
 
+CONTENT TYPE / POST TYPE HANDLING:
+- When user asks about "post type", "content type", "post format", or similar, use "media_type" column
+- Available media types: "image", "video", "carousel"
+- The "post_type" column only contains "organic" (for organic posts) or is empty for ads
+- Examples:
+  * "Which post type performs best?" → Group by "media_type"
+  * "Worst performing post type" → Group by "media_type", sort by engagement_rate ascending
+  * "Compare carousel vs video posts" → Filter media_type in ["carousel", "video"]
+- For ads data (Facebook Ads, Google Ads, etc.), there is NO media_type - these have campaign_type instead
+
+AMBIGUOUS QUERY HANDLING:
+If a query is ambiguous or missing critical information, set "needsClarification": true and provide options.
+
+Ambiguous patterns:
+- "best post" without specifying metric (likes? engagement? reach?)
+- "engagement" without specifying platform (all platforms? specific one?)
+- "this week/month" without clear date context
+- Time-based queries without platform specification
+- Generic superlatives without clear criteria
+
+CLARIFIED QUERY HANDLING:
+If a query contains "[Selected: ...]" at the end, extract the selection and process accordingly:
+- "Best Post on Twitter [Selected: Highest Engagement Rate]" → Use engagement_rate as the metric
+- "Are there more engagements during the week or weekends? [Selected: All Platforms Combined]" → Don't filter by platform
+- Extract the selection, remove the "[Selected: ...]" part, and process the query with that context
+- **CRITICAL**: DO NOT ask for clarification again if the query already has a "[Selected: ...]" tag
+- **CRITICAL**: If a query has "[Selected: ...]", you MUST set needsClarification to FALSE
+- Make reasonable assumptions based on the selected option rather than asking for more clarification
+- If the query references data that doesn't exist (like day_type), return needsClarification with explanation
+
+When needsClarification is true, include:
+{
+  "needsClarification": true,
+  "clarificationNeeded": "What metric should I use to determine 'best'?",
+  "suggestedOptions": [
+    {"label": "By Likes", "description": "Post with most likes"},
+    {"label": "By Engagement Rate", "description": "Highest engagement percentage"},
+    {"label": "By Reach", "description": "Post that reached most people"}
+  ],
+  "interpretation": "User asked for 'best post' but didn't specify the success metric"
+}
+
+BEST/TOP/WORST QUERY HANDLING:
+- "Best post" → Needs clarification OR default to engagement_rate if context is clear
+- "Most liked post" → Sort by likes DESC
+- "Highest engagement" → Sort by engagement_rate DESC
+- "Worst performing" → Sort by engagement_rate ASC (for organic) or ROAS ASC (for ads)
+- "Top posts" → Default to engagement_rate unless metric specified
+
 IMPORTANT RULES:
 1. Return ONLY the JSON object, no markdown formatting or explanations outside the JSON
 2. All column names must exist in the metadata provided
 3. All values must match the data types (text for text columns, numbers for numeric columns)
 4. For categorical columns, use values from the "possibleValues" list when exact matches are needed
 5. Be case-insensitive when matching text values
-6. If query is ambiguous, make reasonable assumptions and explain in "interpretation"
+6. If query is ambiguous AND context cannot resolve it, set needsClarification: true
 7. Always include "interpretation" to show your understanding of the query
+8. Prefer single-step solutions - don't create multi-step dependencies unless truly necessary
 
 EXAMPLES:
 
@@ -301,6 +351,90 @@ Response:
   },
   "limit": 1,
   "interpretation": "User wants the single Instagram post with the most likes from November 2025"
+}
+
+Example 5:
+Query: "Which is the worst performing post type and on which platform?"
+Response:
+{
+  "filters": [
+    {
+      "column": "post_type",
+      "operator": "equals",
+      "value": "organic",
+      "reason": "Only analyze organic posts which have engagement metrics"
+    }
+  ],
+  "groupBy": ["media_type", "platform"],
+  "aggregate": {
+    "engagement_rate": "mean",
+    "likes": "sum",
+    "comments": "sum",
+    "shares": "sum"
+  },
+  "sortBy": {
+    "column": "engagement_rate",
+    "order": "asc"
+  },
+  "limit": 1,
+  "interpretation": "User wants to find the worst performing content type (media_type like image/video/carousel) and platform combination based on engagement rate"
+}
+
+Example 6 (Ambiguous query needing clarification):
+Query: "Are there more engagements during the week or weekends?"
+Response:
+{
+  "needsClarification": true,
+  "clarificationNeeded": "Which platform should I analyze for week vs weekend engagement?",
+  "suggestedOptions": [
+    {"label": "All Platforms Combined", "description": "Aggregate engagement across all platforms"},
+    {"label": "Instagram", "description": "Analyze Instagram posts only"},
+    {"label": "Facebook", "description": "Analyze Facebook posts only"},
+    {"label": "Twitter", "description": "Analyze Twitter posts only"},
+    {"label": "LinkedIn", "description": "Analyze LinkedIn posts only"}
+  ],
+  "interpretation": "User wants to compare weekday vs weekend engagement but didn't specify which platform to analyze"
+}
+
+Example 7:
+Query: "Best Post on Twitter"
+Response:
+{
+  "needsClarification": true,
+  "clarificationNeeded": "What metric should I use to determine the 'best' post?",
+  "suggestedOptions": [
+    {"label": "Most Likes", "description": "Post with highest number of likes"},
+    {"label": "Highest Engagement Rate", "description": "Post with best engagement percentage"},
+    {"label": "Most Reach", "description": "Post that reached most people"},
+    {"label": "Most Shares", "description": "Post shared most frequently"}
+  ],
+  "interpretation": "User wants the best Twitter post but 'best' is ambiguous - could mean likes, engagement, reach, or shares"
+}
+
+Example 8 (CLARIFIED QUERY):
+Query: "Best Post on Twitter [Selected: Highest Engagement Rate]"
+Response:
+{
+  "needsClarification": false,
+  "filters": [{"column": "platform", "operator": "equals", "value": "Twitter"}],
+  "groupBy": null,
+  "aggregate": null,
+  "sortBy": {"column": "engagement_rate", "order": "DESC"},
+  "limit": 1,
+  "interpretation": "User selected engagement rate as the metric - finding Twitter post with highest engagement_rate"
+}
+
+Example 9 (CLARIFIED QUERY - DATA LIMITATION):
+Query: "Are there more engagements during the week or weekends? [Selected: All Platforms Combined]"
+Response:
+{
+  "needsClarification": false,
+  "filters": [],
+  "groupBy": ["posted_date"],
+  "aggregate": {"column": "likes", "function": "SUM", "additionalColumns": ["comments", "shares"]},
+  "sortBy": {"column": "total_likes", "order": "DESC"},
+  "limit": 200,
+  "interpretation": "User selected all platforms. Dataset lacks day_type column, but we can group by posted_date and let the LLM analyze the dates to identify weekday vs weekend patterns. Aggregating likes, comments, and shares as engagement metrics."
 }
 
 Now generate the filter specification for the user's query above. Return ONLY valid JSON.`;

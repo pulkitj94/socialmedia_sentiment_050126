@@ -114,13 +114,17 @@ function App() {
     }
 
     // Resubmit the query with clarification context
-    // You can modify the query or add metadata based on the action
+    // Append the selected option to the query so the filter generator can process it
     let modifiedQuery = pendingQuery;
 
+    // Handle specific actions if they exist
     if (option.action === 'include_all_platforms') {
       modifiedQuery = `${pendingQuery} (include all mentioned platforms)`;
     } else if (option.action === 'show_available_only') {
       modifiedQuery = `${pendingQuery} (show only available data)`;
+    } else {
+      // For general clarifications, append the selected option to the query
+      modifiedQuery = `${pendingQuery} [Selected: ${option.label}]`;
     }
 
     setIsLoading(true);

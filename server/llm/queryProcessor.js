@@ -206,37 +206,98 @@ class QueryProcessor {
     const successfulSteps = stepResults.filter(s => s.success);
     const lastStep = successfulSteps[successfulSteps.length - 1];
 
-    let narrative = `I processed your multi-step query in ${stepResults.length} step(s):\n\n`;
+    // If no successful steps, return error narrative
+    if (!lastStep || !lastStep.data || lastStep.data.length === 0) {
+      let narrative = `I processed your multi-step query in ${stepResults.length} step(s):\n\n`;
 
-    // Describe each step
-    stepResults.forEach(step => {
-      if (step.success) {
-        narrative += `✅ **Step ${step.stepNumber}**: ${step.description}\n`;
-        narrative += `   Found ${step.data.length} result(s)\n\n`;
-      } else {
-        narrative += `❌ **Step ${step.stepNumber}**: ${step.description}\n`;
-        narrative += `   Failed: ${step.error}\n\n`;
-      }
-    });
-
-    // Add final results summary
-    if (lastStep && lastStep.data.length > 0) {
-      narrative += `\n**Final Results:**\n\n`;
-
-      // Generate summary based on the last step's data
-      const topResults = lastStep.data.slice(0, 5);
-      topResults.forEach((item, index) => {
-        const keys = Object.keys(item).filter(k => !k.startsWith('_'));
-        const summary = keys.slice(0, 3).map(k => `${k}: ${item[k]}`).join(', ');
-        narrative += `${index + 1}. ${summary}\n`;
+      stepResults.forEach(step => {
+        if (step.success) {
+          narrative += `✅ **Step ${step.stepNumber}**: ${step.description}\n`;
+          narrative += `   Found ${step.data?.length || 0} result(s)\n\n`;
+        } else {
+          narrative += `❌ **Step ${step.stepNumber}**: ${step.description}\n`;
+          narrative += `   Failed: ${step.error}\n\n`;
+        }
       });
 
-      if (lastStep.data.length > 5) {
-        narrative += `\n...and ${lastStep.data.length - 5} more result(s)\n`;
-      }
+      return narrative;
     }
 
-    return narrative;
+    // Use LLM to generate detailed, insightful narrative for successful multi-step query
+    try {
+      // Create a detailed query for the response framer
+      const detailedQuery = `${originalQuery}
+
+Provide a comprehensive executive summary with:
+1. Key Insight - the main finding
+2. Data Evidence - specific metrics from the results
+3. Analysis - what this means
+4. Recommendation - actionable next steps
+5. Context - comparisons or additional insights`;
+
+      // Use the response framer to generate a detailed narrative
+      const response = await this.responseFramer.frameResponse(
+        detailedQuery,
+        {
+          data: lastStep.data,
+          summary: lastStep.summary
+        },
+        {
+          filters: [],
+          interpretation: originalQuery,
+          metadata: {
+            isMultiStep: true,
+            steps: stepResults.map(s => ({
+              stepNumber: s.stepNumber,
+              description: s.description,
+              resultCount: s.data?.length || 0
+            }))
+          }
+        }
+      );
+
+      // Validate that the response contains actual insights
+      if (response && response.length > 100) {
+        return response;
+      }
+
+      // Fallback to simple narrative if LLM fails
+      throw new Error('LLM response too short');
+
+    } catch (error) {
+      console.log('⚠️  Failed to generate detailed narrative with LLM, using fallback:', error.message);
+
+      // Fallback: Simple narrative
+      let narrative = `I processed your multi-step query in ${stepResults.length} step(s):\n\n`;
+
+      stepResults.forEach(step => {
+        if (step.success) {
+          narrative += `✅ **Step ${step.stepNumber}**: ${step.description}\n`;
+          narrative += `   Found ${step.data.length} result(s)\n\n`;
+        } else {
+          narrative += `❌ **Step ${step.stepNumber}**: ${step.description}\n`;
+          narrative += `   Failed: ${step.error}\n\n`;
+        }
+      });
+
+      // Add final results summary
+      if (lastStep && lastStep.data.length > 0) {
+        narrative += `\n**Final Results:**\n\n`;
+
+        const topResults = lastStep.data.slice(0, 5);
+        topResults.forEach((item, index) => {
+          const keys = Object.keys(item).filter(k => !k.startsWith('_'));
+          const summary = keys.slice(0, 3).map(k => `${k}: ${item[k]}`).join(', ');
+          narrative += `${index + 1}. ${summary}\n`;
+        });
+
+        if (lastStep.data.length > 5) {
+          narrative += `\n...and ${lastStep.data.length - 5} more result(s)\n`;
+        }
+      }
+
+      return narrative;
+    }
   }
 
   /**
@@ -263,6 +324,28 @@ class QueryProcessor {
       // Step 1: Generate filters using LLM
       console.log('📝 Step 1/5: Generating filters with LLM...');
       const filterSpec = await this.filterGenerator.generateFilters(userQuery, this.metadata);
+
+      // Check if filter generator needs clarification
+      if (filterSpec.needsClarification) {
+        console.log('⚠️  Query needs clarification from filter generator');
+        console.log(`   - Question: ${filterSpec.clarificationNeeded}`);
+        console.log(`   - Options: ${filterSpec.suggestedOptions?.length || 0}`);
+
+        return {
+          success: false,
+          needsClarification: true,
+          clarification: {
+            question: filterSpec.clarificationNeeded,
+            options: filterSpec.suggestedOptions || [],
+            reason: filterSpec.interpretation
+          },
+          message: 'This query is ambiguous and needs clarification',
+          metadata: {
+            processingTimeMs: Date.now() - startTime,
+          }
+        };
+      }
+
       console.log(`✅ Filters generated`);
       console.log(`   - Filters: ${filterSpec.filters ? filterSpec.filters.length : 0}`);
       console.log(`   - Group by: ${filterSpec.groupBy ? filterSpec.groupBy.join(', ') : 'none'}`);

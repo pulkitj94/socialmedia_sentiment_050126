@@ -274,7 +274,29 @@ Response:
   "reasoning": "Context-dependent query that refines previous request"
 }
 
-IMPORTANT:
+Example 5 (Single-step with multiple outputs):
+User: "Which is the worst performing post type and on which platform?"
+Response:
+{
+  "isMultiStep": false,
+  "needsContext": false,
+  "steps": [
+    {
+      "stepNumber": 1,
+      "query": "Which is the worst performing post type and on which platform?",
+      "description": "Find worst performing content type and platform combination",
+      "dependsOn": null
+    }
+  ],
+  "contextReference": null,
+  "reasoning": "Single aggregation query asking for two related attributes (post type AND platform). Can be answered with one grouped query, no sequential steps needed."
+}
+
+IMPORTANT RULES:
+- "Which X and Y?" queries are usually SINGLE-STEP (not multi-step) - they ask for multiple attributes in one query
+- "First X, then Y" or "X, and then use that to find Y" are MULTI-STEP
+- Multi-step should ONLY be used when later steps truly depend on earlier results
+- Prefer single-step queries when possible - they're faster and more accurate
 - If needsContext is true, incorporate context into the rewritten query
 - Each step should be a complete, self-contained query
 - Return ONLY valid JSON, no explanations outside the JSON

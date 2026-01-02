@@ -1,91 +1,251 @@
-import React from 'react';
+import { useState } from 'react';
 import './ClarificationDialog.css';
 
 /**
- * ClarificationDialog Component
- *
- * Displays a modal dialog when the system needs clarification from the user.
- * Shows a question with multiple choice options for the user to select.
- *
- * @param {Object} props
- * @param {Object} props.clarification - Clarification object from backend
- * @param {string} props.clarification.question - The question to ask the user
- * @param {Array} props.clarification.options - Array of option objects
- * @param {Object} props.clarification.issue - The detected issue
- * @param {Function} props.onSelect - Callback when user selects an option
- * @param {Function} props.onCancel - Callback when user cancels/wants to rephrase
- * @param {boolean} props.isOpen - Whether the modal is open
+ * V4.3 DIAGNOSTIC VERSION
+ * Logs everything to help debug option display issues
  */
-export default function ClarificationDialog({ clarification, onSelect, onCancel, isOpen }) {
-  if (!isOpen || !clarification) return null;
+function ClarificationDialog({ clarification, onSelect, onCancel, isOpen }) {
+  const [isClosing, setIsClosing] = useState(false);
 
-  const handleOptionClick = (option) => {
-    onSelect(option);
+  // Don't render if not open or no clarification data
+  if (!isOpen || !clarification) {
+    return null;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // DIAGNOSTIC LOGGING - REMOVE AFTER DEBUGGING
+  // ═══════════════════════════════════════════════════════════
+  console.log('🔍 ClarificationDialog Debug:');
+  console.log('Raw clarification object:', JSON.stringify(clarification, null, 2));
+  console.log('clarification.options:', clarification.options);
+  console.log('clarification.alternatives:', clarification.alternatives);
+  console.log('clarification.suggestedOptions:', clarification.suggestedOptions);
+  console.log('clarification.suggestedQueries:', clarification.suggestedQueries);
+  // ═══════════════════════════════════════════════════════════
+
+  // Handle both V4.2 (simple) and V4.3 (rich) formats
+  const isRichFormat = clarification.alternatives || clarification.dataAvailable;
+
+  // Get the main question/reason
+  const mainQuestion = clarification.question || clarification.reason || clarification.clarificationNeeded;
+
+  // Get options (handle multiple formats)
+  let options = [];
+
+  if (clarification.options && Array.isArray(clarification.options)) {
+    console.log('✅ Using clarification.options');
+    // V4.2 simple format or V4.3 options array
+    options = clarification.options.map(opt => {
+      if (typeof opt === 'string') {
+        return { label: opt };
+      } else if (typeof opt === 'object') {
+        return {
+          label: opt.label || opt.option || opt.query || 'Unknown option',
+          description: opt.description || opt.category,
+          reasoning: opt.reasoning
+        };
+      }
+      return { label: 'Unknown option' };
+    });
+  } else if (clarification.alternatives && Array.isArray(clarification.alternatives)) {
+    console.log('✅ Using clarification.alternatives');
+    // V4.3 alternatives format
+    options = clarification.alternatives.map(alt => ({
+      label: alt.option || alt.label || 'Unknown alternative',
+      description: alt.description,
+      reasoning: alt.reasoning
+    }));
+  } else if (clarification.suggestedOptions && Array.isArray(clarification.suggestedOptions)) {
+    console.log('✅ Using clarification.suggestedOptions');
+    // V4.2 suggestedOptions format
+    options = clarification.suggestedOptions.map(opt => {
+      if (typeof opt === 'string') {
+        return { label: opt };
+      } else if (typeof opt === 'object') {
+        return {
+          label: opt.label || opt.option || 'Unknown option',
+          description: opt.description
+        };
+      }
+      return { label: 'Unknown option' };
+    });
+  } else if (clarification.suggestedQueries && Array.isArray(clarification.suggestedQueries)) {
+    console.log('✅ Using clarification.suggestedQueries');
+    // V4.2 suggestedQueries format (for out-of-scope queries)
+    options = clarification.suggestedQueries.map(sq => ({
+      label: sq.query || sq.label || 'Unknown query',
+      description: sq.category || sq.description
+    }));
+  }
+
+  console.log('📊 Final options array:', options);
+  console.log('📊 Options count:', options.length);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      onCancel();
+    }, 200);
   };
 
   const handleBackdropClick = (e) => {
-    // Close if clicking the backdrop (not the modal content)
-    if (e.target.classList.contains('clarification-backdrop')) {
-      onCancel();
+    if (e.target === e.currentTarget) {
+      handleClose();
     }
   };
 
-  const getSeverityColor = (severity) => {
-    switch (severity?.toLowerCase()) {
-      case 'high':
-        return '#ef4444'; // red
-      case 'medium':
-        return '#f59e0b'; // orange
-      case 'warning':
-        return '#eab308'; // yellow
-      default:
-        return '#3b82f6'; // blue
-    }
+  const handleOptionClick = (option) => {
+    console.log('Option clicked:', option);
+    // Extract the text to send back
+    const selectedText = typeof option === 'string' ? option : (option.label || option.option || option.query);
+    console.log('Sending selection:', selectedText);
+    onSelect(selectedText);
   };
 
   return (
-    <div className="clarification-backdrop" onClick={handleBackdropClick}>
-      <div className="clarification-modal">
+    <div
+      className={`clarification-overlay ${isClosing ? 'closing' : ''}`}
+      onClick={handleBackdropClick}
+    >
+      <div className={`clarification-modal ${isClosing ? 'closing' : ''}`}>
+        {/* Header */}
         <div className="clarification-header">
-          <div className="clarification-icon">🤔</div>
-          <h3>Clarification Needed</h3>
-          {clarification.issue && (
-            <div
-              className="clarification-severity"
-              style={{ backgroundColor: getSeverityColor(clarification.issue.severity) }}
-            >
-              {clarification.issue.severity?.toUpperCase()}
-            </div>
-          )}
+          <span className="clarification-icon">😳</span>
+          <h3 className="clarification-title">Clarification Needed</h3>
         </div>
 
-        <div className="clarification-content">
-          <p className="clarification-question">{clarification.question}</p>
+        {/* Body */}
+        <div className="clarification-body">
+          {/* Main Question */}
+          {mainQuestion && (
+            <p className="clarification-question">{mainQuestion}</p>
+          )}
 
-          {clarification.issue && (
-            <div className="clarification-issue">
-              <strong>Issue Detected:</strong>
-              <p>{clarification.issue.message || clarification.issue.specificIssue}</p>
+          {/* Explanation (V4.3) */}
+          {clarification.explanation && (
+            <div className="clarification-explanation">
+              {clarification.explanation}
             </div>
           )}
 
-          <div className="clarification-options">
-            <p className="options-label">Please choose an option:</p>
-            {clarification.options.map((option, index) => (
-              <button
-                key={index}
-                className="clarification-option-btn"
-                onClick={() => handleOptionClick(option)}
-              >
-                <span className="option-number">{index + 1}</span>
-                <span className="option-label">{option.label || option}</span>
-              </button>
-            ))}
+          {/* Data Availability (V4.3) */}
+          {(clarification.dataAvailable || clarification.dataNotAvailable) && (
+            <div className="clarification-data-info">
+              {clarification.dataAvailable && clarification.dataAvailable.length > 0 && (
+                <div className="data-available">
+                  <strong>✅ Data Available:</strong>
+                  <ul>
+                    {clarification.dataAvailable.map((item, idx) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {clarification.dataNotAvailable && clarification.dataNotAvailable.length > 0 && (
+                <div className="data-not-available">
+                  <strong>❌ Data NOT Available:</strong>
+                  <ul>
+                    {clarification.dataNotAvailable.map((item, idx) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Suggested Actions (V4.3) */}
+          {clarification.suggestedActions && clarification.suggestedActions.length > 0 && (
+            <div className="suggested-actions">
+              <strong>💡 Suggested Actions:</strong>
+              <ul>
+                {clarification.suggestedActions.map((action, idx) => (
+                  <li key={idx}>{action}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Options */}
+          <div className="clarification-options-section">
+            <p className="clarification-prompt">PLEASE CHOOSE AN OPTION:</p>
+
+            {options.length === 0 ? (
+              <div className="no-options-error">
+                ⚠️ No options available. This is a bug - please report it.
+                <br />
+                <small>Debug info: Check browser console for details</small>
+              </div>
+            ) : (
+              <div className="clarification-options">
+                {options.map((option, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleOptionClick(option)}
+                    className={`clarification-option ${isRichFormat ? 'rich-option' : ''}`}
+                  >
+                    <div className="option-number">{index + 1}</div>
+                    <div className="option-content">
+                      <div className="option-label">
+                        {option.label || 'No label'}
+                      </div>
+                      {option.description && (
+                        <div className="option-description">
+                          → {option.description}
+                        </div>
+                      )}
+                      {option.reasoning && (
+                        <div className="option-reasoning">
+                          <em>Why relevant:</em> {option.reasoning}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
 
-        <div className="clarification-footer">
-          <button className="clarification-cancel-btn" onClick={onCancel}>
+          {/* Helpful Context (V4.3) */}
+          {clarification.helpfulContext && (
+            <div className="helpful-context">
+              💭 {clarification.helpfulContext}
+            </div>
+          )}
+
+          {/* Suggestion (V4.2 legacy) */}
+          {clarification.suggestion && !clarification.helpfulContext && (
+            <div className="clarification-suggestion">
+              💡 {clarification.suggestion}
+            </div>
+          )}
+
+          {/* Alternative Query (V4.2 legacy) */}
+          {clarification.alternativeQuery && (
+            <div className="clarification-alternative">
+              🔄 {clarification.alternativeQuery}
+            </div>
+          )}
+
+          {/* Available Platforms (V4.2 legacy) */}
+          {clarification.availablePlatforms && clarification.availablePlatforms.length > 0 && (
+            <div className="available-platforms">
+              <strong>Available platforms:</strong>
+              <div className="platform-list">
+                {clarification.availablePlatforms.map((platform, idx) => (
+                  <span key={idx} className="platform-badge">{platform}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rephrase Button */}
+          <button
+            onClick={handleClose}
+            className="clarification-rephrase-button"
+          >
             ✏️ Let me rephrase my question
           </button>
         </div>
@@ -93,3 +253,5 @@ export default function ClarificationDialog({ clarification, onSelect, onCancel,
     </div>
   );
 }
+
+export default ClarificationDialog;

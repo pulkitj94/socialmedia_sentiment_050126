@@ -94,42 +94,63 @@ function App() {
     }
   };
 
+  /**
+   * CRITICAL FIX: Handle clarification selection properly
+   * The option can come as either a STRING or an OBJECT
+   */
   const handleClarificationSelect = async (option) => {
     setShowClarification(false);
+
+    // ═══════════════════════════════════════════════════════════
+    // FIX: Extract selection text properly (string or object)
+    // ═══════════════════════════════════════════════════════════
+    let selectedText;
+    if (typeof option === 'string') {
+      // Simple string selection
+      selectedText = option;
+    } else if (typeof option === 'object' && option !== null) {
+      // Object with label/option/query field
+      selectedText = option.label || option.option || option.query || String(option);
+    } else {
+      // Fallback
+      selectedText = String(option);
+    }
+
+    console.log('🎯 Selection received:', option);
+    console.log('📝 Extracted text:', selectedText);
 
     // Create clarification response message
     const clarificationMessage = {
       type: 'assistant',
-      content: `You selected: **${option.label}**\n\nProcessing your request...`,
+      content: `You selected: **${selectedText}**\n\nProcessing your request...`,
       timestamp: new Date()
     };
     setMessages(prev => [...prev, clarificationMessage]);
 
-    // Handle different actions
-    if (option.action === 'rephrase') {
-      // User wants to rephrase - just close dialog and let them type new query
+    // Check if user wants to rephrase
+    if (selectedText.toLowerCase().includes('rephrase') ||
+      selectedText.toLowerCase().includes('let me rephrase')) {
       setClarificationData(null);
       setPendingQuery('');
+      const cancelMessage = {
+        type: 'assistant',
+        content: 'No problem! Feel free to ask your question in a different way.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, cancelMessage]);
       return;
     }
 
-    // Resubmit the query with clarification context
-    // Append the selected option to the query so the filter generator can process it
-    let modifiedQuery = pendingQuery;
-
-    // Handle specific actions if they exist
-    if (option.action === 'include_all_platforms') {
-      modifiedQuery = `${pendingQuery} (include all mentioned platforms)`;
-    } else if (option.action === 'show_available_only') {
-      modifiedQuery = `${pendingQuery} (show only available data)`;
-    } else {
-      // For general clarifications, append the selected option to the query
-      modifiedQuery = `${pendingQuery} [Selected: ${option.label}]`;
-    }
+    // ═══════════════════════════════════════════════════════════
+    // FIX: Submit the SELECTED QUERY directly (not the pending query)
+    // ═══════════════════════════════════════════════════════════
+    // The user selected a suggested alternative query, so we should
+    // submit THAT query, not modify the original query
 
     setIsLoading(true);
     try {
-      const response = await sendMessage(modifiedQuery);
+      // Submit the selected query directly
+      const response = await sendMessage(selectedText);
 
       const assistantMessage = {
         type: 'assistant',
@@ -227,13 +248,12 @@ function App() {
                     className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-3xl rounded-lg px-4 py-3 ${
-                        message.type === 'user'
+                      className={`max-w-3xl rounded-lg px-4 py-3 ${message.type === 'user'
                           ? 'bg-primary-600 text-white'
                           : message.type === 'error'
-                          ? 'bg-red-50 text-red-900 border border-red-200'
-                          : 'bg-gray-50 text-gray-900 border border-gray-200'
-                      }`}
+                            ? 'bg-red-50 text-red-900 border border-red-200'
+                            : 'bg-gray-50 text-gray-900 border border-gray-200'
+                        }`}
                     >
                       {message.type === 'user' ? (
                         <div className="prose prose-sm max-w-none">

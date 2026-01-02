@@ -9,7 +9,7 @@ import QueryValidator from './queryValidator.js';
 
 /**
  * Main orchestrator for LLM-driven query processing
- * Coordinates all steps from query to response
+ * V4.3 FIXED: Now properly handles V4.3 rich clarification responses
  */
 class QueryProcessor {
   constructor() {
@@ -61,6 +61,7 @@ class QueryProcessor {
 
     if (analysis.isMultiStep && analysis.steps.length > 1) {
       // Multi-step query processing
+      console.log(`\n📊 Query Analysis: ${JSON.stringify(analysis)}`);
       console.log(`\n🔄 Multi-step query detected: ${analysis.steps.length} steps`);
       return await this.processMultiStepQuery(userQuery, analysis, sessionId);
     } else {
@@ -302,6 +303,7 @@ Provide a comprehensive executive summary with:
 
   /**
    * Process a single query (used by both single-step and multi-step)
+   * V4.3 FIXED: Now properly handles V4.3 rich clarification responses
    * @param {string} userQuery - The user's natural language query
    * @param {string} sessionId - Session identifier
    * @returns {Object} Complete response with data and metadata
@@ -325,21 +327,50 @@ Provide a comprehensive executive summary with:
       console.log('📝 Step 1/5: Generating filters with LLM...');
       const filterSpec = await this.filterGenerator.generateFilters(userQuery, this.metadata);
 
-      // Check if filter generator needs clarification
+      // ═══════════════════════════════════════════════════════════
+      // V4.3 FIX: Check for clarification using correct field names
+      // ═══════════════════════════════════════════════════════════
       if (filterSpec.needsClarification) {
-        console.log('⚠️  Query needs clarification from filter generator');
-        console.log(`   - Question: ${filterSpec.clarificationNeeded}`);
-        console.log(`   - Options: ${filterSpec.suggestedOptions?.length || 0}`);
+        // V4.3 returns rich response with multiple fields
+        // Extract options from ANY of these fields:
+        const options = filterSpec.options ||
+          filterSpec.alternatives ||
+          filterSpec.suggestedOptions ||
+          filterSpec.suggestedQueries ||
+          [];
 
+        console.log('⚠️  Query validation failed:', filterSpec.reason || filterSpec.clarificationNeeded);
+        console.log('⚠️  Query needs clarification from filter generator');
+        console.log(`   - Question: ${filterSpec.clarificationNeeded || filterSpec.reason}`);
+        console.log(`   - Options: ${options.length}`);
+
+        // Pass through ALL V4.3 rich data to frontend
         return {
           success: false,
           needsClarification: true,
           clarification: {
-            question: filterSpec.clarificationNeeded,
-            options: filterSpec.suggestedOptions || [],
-            reason: filterSpec.interpretation
+            // Main question (try multiple field names for compatibility)
+            question: filterSpec.clarificationNeeded || filterSpec.reason || filterSpec.question,
+
+            // Options array (handles both V4.2 and V4.3 formats)
+            options: options,
+
+            // V4.3 ADDITION: Pass through rich response data
+            alternatives: filterSpec.alternatives,
+            explanation: filterSpec.explanation,
+            dataAvailable: filterSpec.dataAvailable,
+            dataNotAvailable: filterSpec.dataNotAvailable,
+            suggestedActions: filterSpec.suggestedActions,
+            helpfulContext: filterSpec.helpfulContext,
+
+            // Legacy/backward compatibility
+            reason: filterSpec.interpretation || filterSpec.reason,
+            suggestion: filterSpec.suggestion,
+            alternativeQuery: filterSpec.alternativeQuery,
+            availablePlatforms: filterSpec.availablePlatforms,
+            suggestedQueries: filterSpec.suggestedQueries
           },
-          message: 'This query is ambiguous and needs clarification',
+          message: 'This query needs clarification',
           metadata: {
             processingTimeMs: Date.now() - startTime,
           }

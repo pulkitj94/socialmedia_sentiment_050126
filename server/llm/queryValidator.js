@@ -1,7 +1,11 @@
 /**
- * Query Validator
+ * Query Validator - PATCHED VERSION
  * Validates that generated filters match user intent
  * Detects when clarification is needed
+ * 
+ * PATCH: Handles "organic vs ads" comparisons correctly
+ * - Recognizes that "Instagram organic vs Instagram Ads" is ONE platform with different types
+ * - Does not flag this as "comparison_single_platform" error
  */
 class QueryValidator {
   /**
@@ -24,6 +28,20 @@ class QueryValidator {
     console.log('🔍 Validating Query Intent:');
     console.log('   User Intent:', userIntent);
     console.log('   Filter Intent:', filterIntent);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PATCH: Detect organic vs ads comparison on same platform
+    // ═══════════════════════════════════════════════════════════════════════════
+    const lowerQuery = userQuery.toLowerCase();
+    const isOrganicVsAds = (lowerQuery.includes('organic') && lowerQuery.includes('ads')) ||
+      (lowerQuery.includes('organic') && lowerQuery.includes('paid')) ||
+      (lowerQuery.includes('post') && lowerQuery.includes('ad'));
+
+    if (isOrganicVsAds && filterIntent.platforms.length === 1) {
+      console.log('🔧 PATCH: Detected organic vs ads comparison on same platform - this is VALID');
+      console.log('   Platform:', filterIntent.platforms[0]);
+      console.log('   Comparison type: Organic vs Ads (same platform, different post types)');
+    }
 
     // Check 1: Comparison queries
     if (userIntent.isComparison && userIntent.platforms.length > 1) {
@@ -52,8 +70,11 @@ class QueryValidator {
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
     // Check 3: "Compare" keyword with single platform
-    if (userIntent.isComparison && filterIntent.platforms.length === 1) {
+    // PATCHED: Skip this check if it's an organic vs ads comparison
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (userIntent.isComparison && filterIntent.platforms.length === 1 && !isOrganicVsAds) {
       issues.push({
         type: 'comparison_single_platform',
         severity: 'high',

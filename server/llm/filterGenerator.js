@@ -24,12 +24,647 @@ class FilterGenerator {
   }
 
   /**
+   * Classify query type to apply appropriate filtering strategy
+   * FIX 4: Added query type classification
+   */
+  classifyQueryType(userQuery) {
+    const query = userQuery.toLowerCase();
+
+    // Comparative ranking queries
+    if (/worst|best|top\s+\d*\s*|bottom|highest|lowest|most|least/i.test(query)) {
+      // Check if asking for individual items or categories
+      const individualPatterns = /\b(post|campaign|ad|tweet|content|item)\b/i;
+      const categoryPatterns = /\b(platform|type|format|objective|theme|category)\b/i;
+
+      if (individualPatterns.test(query) && !categoryPatterns.test(query)) {
+        return 'ranking_individual';
+      }
+      return 'ranking_category';
+    }
+
+    // Comparative analysis
+    if (/compare|vs|versus|difference\s+between/i.test(query)) {
+      return 'comparative';
+    }
+
+    // Temporal queries
+    if (/q1|q2|q3|q4|quarter|last\s+(week|month|year)/i.test(query)) {
+      return 'temporal';
+    }
+
+    // Counting queries
+    if (/how\s+many|number\s+of|count/i.test(query)) {
+      return 'counting';
+    }
+
+    return 'factual';
+  }
+
+
+  /**
+   * POST-PROCESSING: Fix common LLM mistakes
+   * This is the KEY addition - validates and corrects LLM output
+   */
+  postProcessFilters(filterSpec, queryType, userQuery) {
+    console.log('🔧 Post-processing filters for query type:', queryType);
+
+    const fixes = [];
+
+    // FIX 1: Remove empty sortBy objects (causes validation errors)
+    if (filterSpec.sortBy && typeof filterSpec.sortBy === 'object') {
+      if (Object.keys(filterSpec.sortBy).length === 0 || !filterSpec.sortBy.column) {
+        delete filterSpec.sortBy;
+        fixes.push('Removed empty sortBy object');
+      }
+    }
+
+    // FIX 2: Counting queries should not have sortBy
+    if (queryType === 'counting') {
+      if (filterSpec.sortBy) {
+        delete filterSpec.sortBy;
+        fixes.push('Removed sortBy from counting query');
+      }
+
+      // Ensure we're using a valid column for counting
+      if (filterSpec.aggregate) {
+        const aggKeys = Object.keys(filterSpec.aggregate);
+        if (aggKeys.length > 0) {
+          const aggColumn = aggKeys[0];
+          // If using invalid column name, replace with post_id or campaign_id
+          if (aggColumn === 'metric_column' || aggColumn === 'column_name' || aggColumn === 'field') {
+            const validColumn = userQuery.toLowerCase().includes('campaign') ? 'campaign_id' : 'post_id';
+            filterSpec.aggregate = { [validColumn]: 'count' };
+            fixes.push(`Fixed aggregation column: ${aggColumn} → ${validColumn}`);
+          }
+        }
+      }
+    }
+
+    // FIX 3: Comparative ranking queries need higher limits and proper structure
+    if (queryType === 'ranking_category') {
+      // Ensure we're grouping for comparison
+      if (!filterSpec.groupBy || filterSpec.groupBy.length === 0) {
+        // Detect what to group by from query
+        const query = userQuery.toLowerCase();
+        if (query.includes('platform')) {
+          filterSpec.groupBy = ['platform'];
+          fixes.push('Added platform groupBy for comparative query');
+        }
+        if (query.includes('type') || query.includes('format')) {
+          if (!filterSpec.groupBy) filterSpec.groupBy = [];
+          if (query.includes('post') || query.includes('content')) {
+            filterSpec.groupBy.push('media_type');
+            fixes.push('Added media_type groupBy for post type comparison');
+          }
+        }
+        // If asking for "worst/best post type", group by both platform and media_type
+        if ((query.includes('worst') || query.includes('best')) &&
+          (query.includes('post type') || query.includes('content type'))) {
+          filterSpec.groupBy = ['platform', 'media_type'];
+          fixes.push('Added platform+media_type groupBy for post type comparison');
+        }
+      }
+
+      // Ensure proper aggregation exists
+      if (!filterSpec.aggregate || Object.keys(filterSpec.aggregate).length === 0) {
+        filterSpec.aggregate = { 'engagement_rate': 'mean' };
+        fixes.push('Added default engagement_rate aggregation');
+      }
+
+      // Ensure sortBy exists for ranking
+      if (!filterSpec.sortBy || !filterSpec.sortBy.column) {
+        const aggColumn = Object.keys(filterSpec.aggregate)[0];
+        const order = userQuery.toLowerCase().includes('worst') ||
+          userQuery.toLowerCase().includes('lowest') ? 'asc' : 'desc';
+        filterSpec.sortBy = { column: aggColumn, order };
+        fixes.push(`Added sortBy: ${aggColumn} ${order}`);
+      }
+
+      // CRITICAL: Increase limit to show all categories for comparison
+      // ALWAYS set high limit for ranking queries, even if LLM already set one
+      if (!filterSpec.limit || filterSpec.limit < 20) {
+        filterSpec.limit = 20; // Show ALL platform x type combinations (increased from 15)
+        fixes.push(`Increased limit to 20 for comprehensive comparative ranking (was: ${filterSpec.limit || 'none'})`);
+      }
+
+      // Remove restrictive filters for "worst/best" queries
+      if (userQuery.toLowerCase().includes('worst') || userQuery.toLowerCase().includes('best')) {
+        if (filterSpec.filters && filterSpec.filters.length > 0) {
+          // Keep only date/platform filters, remove performance filters
+          filterSpec.filters = filterSpec.filters.filter(f => {
+            const isDateFilter = f.column && f.column.includes('date');
+            const isPlatformFilter = f.column && f.column.includes('platform');
+            const isPerformanceFilter = f.column &&
+              (f.column.includes('engagement') || f.column.includes('rate') ||
+                f.column.includes('likes') || f.column.includes('reach'));
+            return (isDateFilter || isPlatformFilter) && !isPerformanceFilter;
+          });
+          if (filterSpec.filters.length === 0) {
+            delete filterSpec.filters;
+            fixes.push('Removed restrictive filters for worst/best comparison');
+          }
+        }
+      }
+    }
+
+    // FIX 4: Temporal comparative queries need higher limits
+    if (queryType === 'temporal' || (queryType === 'comparative' && userQuery.toLowerCase().match(/q[1-4]|quarter/))) {
+      if (filterSpec.groupBy && filterSpec.groupBy.length > 0) {
+        // This is a comparison across time
+        if (!filterSpec.limit || filterSpec.limit < 6) {
+          filterSpec.limit = 10; // Show all platforms/categories
+          fixes.push('Increased limit to 10 for temporal comparison');
+        }
+      }
+    }
+
+    // FIX 5: Individual ranking queries should NOT have groupBy or aggregate
+    if (queryType === 'ranking_individual') {
+      if (filterSpec.groupBy && filterSpec.groupBy.length > 0) {
+        delete filterSpec.groupBy;
+        fixes.push('Removed groupBy from individual ranking query');
+      }
+      if (filterSpec.aggregate && Object.keys(filterSpec.aggregate).length > 0) {
+        delete filterSpec.aggregate;
+        fixes.push('Removed aggregate from individual ranking query');
+      }
+      // Ensure sortBy exists
+      if (!filterSpec.sortBy || !filterSpec.sortBy.column) {
+        // Try to infer sort column from query
+        const query = userQuery.toLowerCase();
+        let sortColumn = 'engagement_rate'; // default
+        if (query.includes('like')) sortColumn = 'likes';
+        else if (query.includes('comment')) sortColumn = 'comments';
+        else if (query.includes('share')) sortColumn = 'shares';
+        else if (query.includes('reach')) sortColumn = 'reach';
+        else if (query.includes('impression')) sortColumn = 'impressions';
+
+        filterSpec.sortBy = {
+          column: sortColumn,
+          order: query.includes('worst') || query.includes('least') ? 'asc' : 'desc'
+        };
+        fixes.push(`Added sortBy: ${sortColumn} for individual ranking`);
+      }
+    }
+
+    // FIX 6: Ensure limit is reasonable
+    if (filterSpec.limit) {
+      if (filterSpec.limit > 100) {
+        filterSpec.limit = 100;
+        fixes.push('Capped limit at 100');
+      }
+      if (filterSpec.limit < 1) {
+        filterSpec.limit = 10;
+        fixes.push('Minimum limit set to 10');
+      }
+    }
+
+
+    // FIX 7: Q3/Quarter date filtering - Auto-inject missing date filters
+    // If interpretation mentions Q3 but no date filters exist, add them automatically
+    if (filterSpec.interpretation) {
+      const interp = filterSpec.interpretation.toLowerCase();
+      const mentionsQ3 = /q3|third quarter|july.*september|july-september|jul.*sep/i.test(interp);
+      const mentionsQ4 = /q4|fourth quarter|october.*december|oct.*dec/i.test(interp);
+      const mentionsQ2 = /q2|second quarter|april.*june|apr.*jun/i.test(interp);
+      const mentionsQ1 = /q1|first quarter|january.*march|jan.*mar/i.test(interp);
+
+      // Check if we have any date filters
+      const hasDateFilters = filterSpec.filters && filterSpec.filters.some(f =>
+        f.column === 'posted_date' ||
+        (f.type === 'or' && f.conditions && f.conditions.some(c => c.column === 'posted_date'))
+      );
+
+      if ((mentionsQ3 || mentionsQ4 || mentionsQ2 || mentionsQ1) && !hasDateFilters) {
+        // Determine which quarter
+        let months = [];
+        let quarterName = '';
+
+        if (mentionsQ3) {
+          months = ["07-2025", "08-2025", "09-2025"];
+          quarterName = 'Q3';
+        } else if (mentionsQ4) {
+          months = ["10-2025", "11-2025", "12-2025"];
+          quarterName = 'Q4';
+        } else if (mentionsQ2) {
+          months = ["04-2025", "05-2025", "06-2025"];
+          quarterName = 'Q2';
+        } else if (mentionsQ1) {
+          months = ["01-2025", "02-2025", "03-2025"];
+          quarterName = 'Q1';
+        }
+
+        // Create OR filter with month conditions
+        const quarterFilter = {
+          type: "or",
+          conditions: months.map(month => ({
+            column: "posted_date",
+            operator: "contains",
+            value: month
+          }))
+        };
+
+        // Initialize filters if not exists
+        if (!filterSpec.filters) {
+          filterSpec.filters = [];
+        }
+
+        // Add the quarter filter
+        filterSpec.filters.push(quarterFilter);
+
+        fixes.push(`Added missing ${quarterName} date filters (${months.join(', ')}) based on interpretation`);
+        console.log(`🔧 AUTO-FIX: Injected ${quarterName} date filters - LLM mentioned ${quarterName} but didn't generate filters`);
+      }
+    }
+
+
+    if (fixes.length > 0) {
+      console.log('✅ Applied post-processing fixes:');
+      fixes.forEach(fix => console.log(`   - ${fix}`));
+    } else {
+      console.log('✅ No post-processing fixes needed');
+    }
+
+    return filterSpec;
+  }
+
+
+  /**
+   * V4 ADDITION: Validate if query is answerable with available data
+   * Prevents out-of-scope queries and provides helpful suggestions
+   * PATCH: Added isComparisonQuery flag to skip time validations
+   */
+  validateQueryScope(userQuery, metadata, isComparisonQuery = false) {
+    const query = userQuery.toLowerCase();
+    const availablePlatforms = (metadata.uniqueValues && metadata.uniqueValues.platform) || [];
+
+    // Check for non-existent platforms
+    const unavailablePlatforms = {
+      'tiktok': 'TikTok',
+      'youtube': 'YouTube',
+      'snapchat': 'Snapchat',
+      'pinterest': 'Pinterest',
+      'reddit': 'Reddit',
+      'whatsapp': 'WhatsApp'
+    };
+
+    for (const [keyword, displayName] of Object.entries(unavailablePlatforms)) {
+      if (query.includes(keyword)) {
+        const exists = availablePlatforms.some(p =>
+          p && p.toLowerCase().includes(keyword)
+        );
+
+        if (!exists) {
+          return {
+            valid: false,
+            reason: `${displayName} data is not available in the current dataset.`,
+            availablePlatforms: availablePlatforms.filter(p => p && p.length > 0),
+            suggestedQueries: this.getSuggestedQueries(metadata)
+          };
+        }
+      }
+    }
+
+    // Check for metrics that don't exist in organic posts
+    const adsOnlyMetrics = {
+      'ctr': 'click-through rate (CTR)',
+      'click-through': 'click-through rate',
+      'cpc': 'cost per click (CPC)',
+      'cost per click': 'cost per click',
+      'roas': 'return on ad spend (ROAS)',
+      'conversion': 'conversions'
+    };
+
+    const isAskingAboutOrganicPosts = (query.includes('post') || query.includes('organic')) &&
+      !query.includes('ad') &&
+      !query.includes('campaign');
+
+    if (isAskingAboutOrganicPosts) {
+      for (const [keyword, displayName] of Object.entries(adsOnlyMetrics)) {
+        if (query.includes(keyword)) {
+          return {
+            valid: false,
+            needsClarification: true,
+            reason: `${displayName} is only available for ad campaigns, not organic posts.`,
+            explanation: `For organic posts, try asking about engagement rate, likes, comments, shares, reach, or impressions instead.`,
+            alternatives: [
+              {
+                option: 'Show me engagement rate for organic posts',
+                description: 'Similar metric to CTR but for organic content'
+              },
+              {
+                option: `Show me ${displayName} for ad campaigns`,
+                description: 'View this metric for paid advertising'
+              },
+              {
+                option: 'Compare organic engagement vs ad performance',
+                description: 'See how organic and paid content differ'
+              }
+            ],
+            suggestedQueries: [
+              'What is the average engagement rate for organic posts?',
+              'Show me top organic posts by likes',
+              `What is the ${displayName} for Facebook Ads?`,
+              'Compare organic reach vs ad reach'
+            ]
+          };
+        }
+      }
+    }
+
+    // Check if query is completely off-topic
+    const socialMediaKeywords = [
+      'post', 'campaign', 'ad', 'engagement', 'like', 'share', 'reach', 'impression',
+      'platform', 'facebook', 'instagram', 'twitter', 'linkedin', 'google',
+      'content', 'performance', 'roas', 'conversion', 'ctr', 'click',
+      'follower', 'audience', 'organic', 'paid', 'media', 'social'
+    ];
+
+    const hasRelevantKeyword = socialMediaKeywords.some(kw => query.includes(kw));
+
+    if (!hasRelevantKeyword && query.length > 10) {
+      return {
+        valid: false,
+        reason: 'This query appears to be outside the scope of social media performance data.',
+        explanation: 'I can only help analyze social media posts and ad campaign performance.',
+        suggestedQueries: this.getSuggestedQueries(metadata)
+      };
+    }
+
+
+    // V4.2 ADDITION: Check for queries requiring derived fields
+
+    // Check for day-of-week / weekday/weekend queries
+    const weekdayPatterns = /weekday|weekend|week day|day of (the )?week|monday|tuesday|wednesday|thursday|friday|saturday|sunday/i;
+    if (weekdayPatterns.test(query)) {
+      const availableColumns = (metadata.columns && Object.keys(metadata.columns)) || [];
+      const hasDayOfWeek = availableColumns.some(col =>
+        col.toLowerCase().includes('day') && col.toLowerCase().includes('week')
+      );
+
+      if (!hasDayOfWeek && !query.includes('posted_date')) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: 'Weekday vs weekend analysis requires grouping by day of week.',
+          explanation: 'The data has posted_date but not day-of-week categorization. I cannot automatically determine if a date is a weekday or weekend.',
+          alternatives: [
+            {
+              option: 'Show me engagement grouped by individual date',
+              description: 'You can manually identify which dates are weekdays vs weekends'
+            },
+            {
+              option: 'Show me all posts with dates and engagement metrics',
+              description: 'Full dataset for manual analysis'
+            },
+            {
+              option: 'Show me top performing posts by date',
+              description: 'Identify patterns across different dates'
+            }
+          ]
+        };
+      }
+    }
+
+    // Check for time-of-day queries
+    // PATCH: Skip this validation for comparison queries
+    const timeOfDayPatterns = /time of day|morning|afternoon|evening|night|hour|am|pm|peak time|best time to post/i;
+    if (!isComparisonQuery && timeOfDayPatterns.test(query) && !query.includes('posted_time')) {
+      const availableColumns = (metadata.columns && Object.keys(metadata.columns)) || [];
+      const hasTimeCategory = availableColumns.some(col =>
+        col.toLowerCase().includes('time') && (col.toLowerCase().includes('category') || col.toLowerCase().includes('period'))
+      );
+
+      if (!hasTimeCategory) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: 'Time-of-day analysis requires grouping by time periods.',
+          explanation: 'The data has posted_time (HH:MM:SS) but not time-of-day categorization (morning/afternoon/evening).',
+          alternatives: [
+            {
+              option: 'Show me posts with their posted_time and engagement rate',
+              description: 'You can analyze patterns by reviewing timestamps'
+            },
+            {
+              option: 'Show me top 20 posts sorted by engagement with timestamps',
+              description: 'Identify which times correlate with high engagement'
+            },
+            {
+              option: 'Group posts by hour (if supported)',
+              description: 'See engagement by posting hour'
+            }
+          ]
+        };
+      }
+    }
+
+    // Check for "weekly" or "last week" without specific dates
+    const weeklyPatterns = /weekly|last week|this week|past week/i;
+    if (weeklyPatterns.test(query) && !query.includes('2025') && !query.includes('december') && !query.includes('date')) {
+      return {
+        valid: false,
+        needsClarification: true,
+        reason: 'Please specify which week you want to analyze.',
+        explanation: '"Weekly" is ambiguous - it could mean last 7 days, current calendar week, or a specific week.',
+        alternatives: [
+          {
+            option: 'Show me data from December 23-29, 2025',
+            description: 'Last complete week'
+          },
+          {
+            option: 'Show me data from the last 7 days',
+            description: 'Rolling 7-day window'
+          },
+          {
+            option: 'Show me overall performance summary',
+            description: 'All available data'
+          }
+        ]
+      };
+    }
+
+    // Check for specific ad format comparisons (like "Stories")
+    const adFormatPatterns = /stories campaign|reels campaign|carousel ad|video ad|collection ad/i;
+    const organicComparison = /organic.*vs|vs.*organic|compare.*organic|organic.*compare/i;
+
+    if (adFormatPatterns.test(query) && organicComparison.test(query)) {
+      return {
+        valid: false,
+        needsClarification: true,
+        reason: 'Comparing organic posts to specific ad formats requires multiple filters.',
+        explanation: 'I can compare organic posts to ads, but filtering by specific ad format (Stories, Carousel, etc.) needs clarification.',
+        alternatives: [
+          {
+            option: 'Compare Instagram organic posts vs all Instagram Ads',
+            description: 'Overall organic vs paid comparison'
+          },
+          {
+            option: 'Show me Instagram Ads grouped by ad format',
+            description: 'See all ad formats (Stories, Carousel, Single Image, etc.) separately'
+          },
+          {
+            option: 'Show me Stories ads across all platforms',
+            description: 'Focus on Stories format specifically'
+          },
+          {
+            option: 'Let me specify the exact comparison I want',
+            description: 'Rephrase for clarity'
+          }
+        ]
+      };
+    }
+
+
+
+    // V4.3 ADDITION: Generic complexity detection (catch-all for unhandled complex queries)
+
+    const complexityIndicators = {
+      analysis: /correlat(e|ion)|predict|forecast|trend analysis|pattern detect|regression|statistical/i,
+      derivedMetrics: /virality|roi|coefficient|score|index|rating|sentiment|emotion|mood/i,
+      transformations: /adjust(ed)?|normaliz(e|ed)|weight(ed)?|factor|baseline|calibrat/i,
+      statistics: /percentile|quartile|distribution|variance|standard deviation|median/i,
+      segmentation: /cohort|segment|cluster|group analysis|categoriz/i,
+      causation: /causation|attribution|impact analysis|because|due to|caused by/i,
+      detection: /anomaly|outlier|unusual|irregular|abnormal/i,
+      nlp: /sentiment|emotion|tone|language|text analysis|keyword extract/i,
+      timeSeries: /seasonality|cyclical|periodic|year.over.year|yoy/i,
+      prediction: /will be|going to|future|next month|predict|expect/i
+    };
+
+    // Check if query matches any complexity indicator
+    let matchedCategory = null;
+    let matchedPattern = null;
+
+    for (const [category, pattern] of Object.entries(complexityIndicators)) {
+      if (pattern.test(query)) {
+        matchedCategory = category;
+        matchedPattern = pattern;
+        break;
+      }
+    }
+
+    if (matchedCategory) {
+      // Extract what user is asking for
+      const queryIntent = query.substring(0, 60) + (query.length > 60 ? '...' : '');
+
+      // Build comprehensive response with all three options
+      const response = {
+        valid: false,
+        needsClarification: true,
+        complexityType: matchedCategory,
+
+        // OPTION 3: Explain Data Limitation (Honest)
+        reason: `This query requires ${matchedCategory} which may not be available in the current dataset.`,
+        explanation: this.getComplexityExplanation(matchedCategory, query),
+        dataAvailable: this.getAvailableData(metadata),
+        dataNotAvailable: this.getMissingCapabilities(matchedCategory),
+
+        // OPTION 2: Provide Closest Alternatives (Helpful)
+        alternatives: this.getSimilarAlternatives(matchedCategory, metadata),
+
+        // OPTION 1: Ask for Clarification (Best UX)
+        suggestedActions: this.getSuggestedActions(matchedCategory),
+
+        helpfulContext: `I understand you're looking for ${matchedCategory} insights. While I cannot perform that exact analysis, I can provide related metrics and data that might help you reach your goal.`
+      };
+
+      return response;
+    }
+
+
+    // Query seems valid
+    return { valid: true };
+  }
+
+  /**
+   * V4 ADDITION: Generate helpful suggested queries based on available data
+   */
+  getSuggestedQueries(metadata) {
+    const platforms = (metadata.uniqueValues && metadata.uniqueValues.platform) || [];
+    const hasAds = platforms.some(p => p && p.includes('Ads'));
+    const hasOrganic = platforms.some(p => p && !p.includes('Ads'));
+
+    const suggestions = [];
+
+    if (hasOrganic) {
+      suggestions.push({
+        query: "Which platform has the highest engagement rate?",
+        category: "Platform Comparison"
+      });
+      suggestions.push({
+        query: "Show me the top 5 posts by likes",
+        category: "Content Performance"
+      });
+      suggestions.push({
+        query: "What is the worst performing post type?",
+        category: "Content Analysis"
+      });
+    }
+
+    if (hasAds) {
+      suggestions.push({
+        query: "Compare ROAS across Facebook Ads, Instagram Ads, and Google Ads",
+        category: "Ad Performance"
+      });
+      suggestions.push({
+        query: "Which ad campaign has the highest conversion rate?",
+        category: "Campaign Analysis"
+      });
+    }
+
+    if (hasOrganic && hasAds) {
+      suggestions.push({
+        query: "Compare Instagram organic vs Instagram Ads performance",
+        category: "Organic vs Paid"
+      });
+    }
+
+    return suggestions;
+  }
+
+
+  /**
    * Generate filter specification from user query using LLM
    * @param {string} userQuery - The user's natural language query
    * @param {Object} metadata - Dataset metadata from MetadataExtractor
    * @returns {Object} Filter specification object
    */
   async generateFilters(userQuery, metadata) {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PATCH: Early detection of comparison queries to prevent mis-classification
+    // ═══════════════════════════════════════════════════════════════════════════
+    const lowerQuery = userQuery.toLowerCase();
+    const isComparisonQuery = (lowerQuery.includes(' vs ') ||
+      lowerQuery.includes(' versus ') ||
+      (lowerQuery.includes('compare') && lowerQuery.includes(' and '))) &&
+      (lowerQuery.includes('organic') || lowerQuery.includes('ads') ||
+        lowerQuery.includes('paid') || lowerQuery.includes('platform'));
+
+    if (isComparisonQuery) {
+      console.log('🔧 PATCH: Comparison query detected - using specialized handling');
+      console.log('   Skipping time-of-day and other complex validations');
+    }
+
+    // V4 ADDITION: Validate query scope before processing
+    // BUT skip time-based validations for comparison queries
+    const validation = this.validateQueryScope(userQuery, metadata, isComparisonQuery);
+
+    if (!validation.valid) {
+      console.log('⚠️  Query validation failed:', validation.reason);
+      return {
+        needsClarification: true,
+        outOfScope: true,
+        clarificationNeeded: validation.reason,
+        suggestion: validation.suggestion,
+        alternativeQuery: validation.alternativeQuery,
+        explanation: validation.explanation,
+        availablePlatforms: validation.availablePlatforms,
+        suggestedQueries: validation.suggestedQueries || [],
+        interpretation: "Query is outside the scope of available data or requires clarification"
+      };
+    }
+
     // Check cache first
     const cached = this.cache.get(userQuery);
     if (cached) {
@@ -40,7 +675,12 @@ class FilterGenerator {
     }
 
     console.log('💾 Filter cache MISS - Generating new filter spec');
-    const prompt = this.buildPrompt(userQuery, metadata);
+
+    // FIX 4: Classify query type
+    const queryType = this.classifyQueryType(userQuery);
+    console.log(`🔍 Query type detected: ${queryType}`);
+
+    const prompt = this.buildPrompt(userQuery, metadata, queryType);
 
     try {
       const llm = this.getLLM();
@@ -53,11 +693,15 @@ class FilterGenerator {
         throw new Error('LLM did not return valid JSON');
       }
 
-      const filterSpec = JSON.parse(jsonMatch[0]);
+      let filterSpec = JSON.parse(jsonMatch[0]);
 
       // Add metadata
       filterSpec.generatedAt = new Date().toISOString();
       filterSpec.originalQuery = userQuery;
+      filterSpec.queryType = queryType;
+
+      // ⭐ POST-PROCESS: Fix common LLM mistakes (THIS IS THE KEY FIX)
+      filterSpec = this.postProcessFilters(filterSpec, queryType, userQuery); // Track query type for debugging
 
       // Clean up invalid LLM responses
       this.cleanupFilterSpec(filterSpec);
@@ -79,9 +723,10 @@ class FilterGenerator {
 
   /**
    * Build comprehensive prompt for LLM
+   * FIX 1, 2, 3: Enhanced with better aggregation rules, date handling, and comparative query handling
    */
-  buildPrompt(userQuery, metadata) {
-    return `You are a data analyst assistant specialized in generating database filter conditions.
+  buildPrompt(userQuery, metadata, queryType = 'factual') {
+    let prompt = `You are a data analyst assistant specialized in generating database filter conditions.
 
 DATASET METADATA:
 ${JSON.stringify(this.formatMetadataForPrompt(metadata), null, 2)}
@@ -104,7 +749,7 @@ FILTER SPECIFICATION FORMAT:
   ],
   "groupBy": ["column1", "column2"],
   "aggregate": {
-    "metric_column": "sum|mean|median|count|min|max|std|variance|mode|range|p25|p50|p75|p90|p95|p99|distinctCount|first|last"
+    "actual_column_name": "sum|mean|median|count|min|max|std|variance|mode|range|p25|p50|p75|p90|p95|p99|distinctCount|first|last"
   },
   "sortBy": {
     "column": "column_name",
@@ -119,6 +764,33 @@ AGGREGATION FUNCTIONS AVAILABLE:
 - Statistical: std (standard deviation), variance, mode, range
 - Percentiles: p25, p50 (median), p75, p90, p95, p99
 - Other: distinctCount (unique values), first, last
+
+═══════════════════════════════════════════════════════════
+⚠️ FIX 1: CRITICAL AGGREGATION RULES
+═══════════════════════════════════════════════════════════
+
+1. ALWAYS use actual column names from the dataset, NEVER use placeholders
+2. For COUNT operations, use ANY existing column (recommended: "post_id", "campaign_id", or "platform")
+3. NEVER use generic placeholder names like "metric_column", "column_name", "field"
+
+CORRECT EXAMPLES:
+✅ {"post_id": "count"}  // Counts total records (RECOMMENDED for counting)
+✅ {"campaign_id": "count"}  // Counts campaigns
+✅ {"platform": "count"}  // Counts platforms
+✅ {"engagement_rate": "mean"}  // Average engagement rate
+✅ {"likes": "sum"}  // Total likes
+✅ {"reach": "max"}  // Maximum reach
+
+WRONG EXAMPLES (WILL FAIL VALIDATION):
+❌ {"metric_column": "count"}  // "metric_column" does not exist in dataset
+❌ {"column_name": "sum"}  // "column_name" does not exist in dataset  
+❌ {"field": "mean"}  // "field" does not exist in dataset
+
+AVAILABLE COLUMNS FOR AGGREGATION:
+Numeric columns: ${metadata.numericColumns?.join(', ') || 'impressions, reach, likes, comments, shares, saves, engagement_rate'}
+ID columns (for counting): post_id, campaign_id, platform
+
+For counting queries ("how many"), use: "post_id" (recommended) or "campaign_id" or "platform"
 
 OPERATOR GUIDELINES:
 - Use "contains" for partial text/date matching (e.g., "11-2025" in "posted_date" for November)
@@ -146,21 +818,109 @@ AGGREGATION RULES:
   - Return individual records, not aggregated summaries
 - When aggregating: use "mean" for rates/percentages, "sum" for counts, "count" for frequency
 
-DATE HANDLING (ENHANCED):
+═══════════════════════════════════════════════════════════
+⚠️ FIX 2: CRITICAL DATE HANDLING RULES
+═══════════════════════════════════════════════════════════
+
 - Current date: ${new Date().toISOString().split('T')[0]}
-- Relative dates supported:
-  * "today", "yesterday", "tomorrow"
-  * "last week", "this week", "last month", "this month"
-  * "3 days ago", "2 weeks ago", "1 month ago"
-  * "Q1 2025", "Q2", "Q3 2025", "Q4"
-  * "early November", "mid December", "late January"
-- Date ranges supported:
-  * "last 7 days", "last 30 days", "last 3 months"
-- Month names: "January", "Feb", "November 2025"
-- Standard formats: "DD-MM-YYYY", "YYYY-MM-DD"
-- Use "after"/"before" operators for date comparisons
-- Use "between" for date ranges
-- Use "contains" for month/year matching (e.g., "11-2025" for November)
+- Date format in dataset: DD-MM-YYYY (e.g., "07-11-2025", "15-09-2025")
+- Date column name: "posted_date"
+
+⚠️ CRITICAL: Always use "contains" operator for date matching, NEVER use "equals"
+
+QUARTER TO MONTH MAPPING:
+- Q1 2025 = January-March 2025 = "01-2025", "02-2025", "03-2025"
+- Q2 2025 = April-June 2025 = "04-2025", "05-2025", "06-2025"  
+- Q3 2025 = July-September 2025 = "07-2025", "08-2025", "09-2025"
+- Q4 2025 = October-December 2025 = "10-2025", "11-2025", "12-2025"
+
+HOW TO FILTER BY QUARTER (USE OR LOGIC) - CRITICAL:
+
+⚠️⚠️⚠️ MANDATORY EXAMPLE - MEMORIZE THIS ⚠️⚠️⚠️
+
+When user asks about "Q3", "third quarter", or "July to September":
+
+YOU ABSOLUTELY MUST GENERATE THIS STRUCTURE:
+{
+  "filters": [
+    {
+      "type": "or",
+      "conditions": [
+        {"column": "posted_date", "operator": "contains", "value": "07-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "08-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+      ]
+    }
+  ],
+  "groupBy": ["platform"],
+  "aggregate": {"engagement_rate": "mean"},
+  "sortBy": {"column": "engagement_rate", "order": "desc"}
+}
+
+🚨 CRITICAL RULES:
+1. NEVER leave "filters" empty or null for Q3 queries
+2. ALWAYS use "type": "or" for quarter queries
+3. ALWAYS use "contains" operator with MM-YYYY format
+4. NEVER use "Q3" as a value - it won't match any data!
+
+QUARTER TO MONTH MAPPING (MEMORIZE):
+- Q1 = "01-2025", "02-2025", "03-2025" (Jan, Feb, Mar)
+- Q2 = "04-2025", "05-2025", "06-2025" (Apr, May, Jun)
+- Q3 = "07-2025", "08-2025", "09-2025" (Jul, Aug, Sep)
+- Q4 = "10-2025", "11-2025", "12-2025" (Oct, Nov, Dec)
+
+WRONG APPROACHES (THESE WILL FAIL):
+❌ {"column": "posted_date", "operator": "equals", "value": "Q3"}
+❌ {"column": "posted_date", "operator": "contains", "value": "Q3"}
+❌ {"column": "quarter", "operator": "equals", "value": "3"}
+❌ Leaving filters array empty and putting "Q3" only in interpretation
+
+CORRECT APPROACH (THE ONLY WAY):
+✅ Use OR logic with individual month filters as shown above
+
+MORE EXAMPLES:
+
+Example: "Q4 performance"
+CORRECT:
+{
+  "type": "or",
+  "conditions": [
+    {"column": "posted_date", "operator": "contains", "value": "10-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "11-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "12-2025"}
+  ]
+}
+
+Example: "Last quarter" (assuming current date is Dec 2025, last quarter = Q3)
+CORRECT:
+{
+  "type": "or",
+  "conditions": [
+    {"column": "posted_date", "operator": "contains", "value": "07-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "08-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+  ]
+}
+
+HOW TO FILTER BY SINGLE MONTH:
+November 2025: {"column": "posted_date", "operator": "contains", "value": "11-2025"}
+September 2025: {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+
+HOW TO FILTER BY DATE RANGE (Multiple Months):
+Use OR logic:
+{
+  "type": "or",
+  "conditions": [
+    {"column": "posted_date", "operator": "contains", "value": "10-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "11-2025"},
+    {"column": "posted_date", "operator": "contains", "value": "12-2025"}
+  ]
+}
+
+REMEMBER:
+- ALWAYS use "contains" for dates (not "equals")
+- For quarters/multiple months: use OR logic with type: "or"
+- Date format is DD-MM-YYYY
 
 PLATFORM NAME HANDLING:
 - Platform names are case-insensitive and normalized automatically
@@ -216,6 +976,154 @@ BEST/TOP/WORST QUERY HANDLING:
 - "Highest engagement" → Sort by engagement_rate DESC
 - "Worst performing" → Sort by engagement_rate ASC (for organic) or ROAS ASC (for ads)
 - "Top posts" → Default to engagement_rate unless metric specified
+`;
+
+    // FIX 3: Add query-type specific guidance
+    if (queryType === 'ranking_category') {
+      prompt += `
+═══════════════════════════════════════════════════════════
+⚠️ FIX 3: COMPARATIVE RANKING QUERY DETECTED (CATEGORIES)
+═══════════════════════════════════════════════════════════
+
+User is asking for worst/best/top/lowest across CATEGORIES (platforms, types, formats).
+
+CRITICAL RULES:
+1. DO NOT add restrictive filters that limit comparison
+2. USE groupBy for the categories being compared (e.g., ["platform", "media_type"])
+3. RETURN all groups (limit 12-20) to show full comparison context
+4. SORT by the metric being compared
+
+Example: "What is the worst performing post type?"
+User wants to COMPARE all platform × content type combinations
+
+CORRECT:
+{
+  "filters": [],  // ⚠️ NO filters - need ALL data for full comparison
+  "groupBy": ["platform", "media_type"],
+  "aggregate": {
+    "engagement_rate": "mean"
+  },
+  "sortBy": {
+    "column": "engagement_rate",
+    "order": "asc"  // ascending for "worst"
+  },
+  "limit": 12,  // Return all combinations for comparison context
+  "interpretation": "Comparing all platform × content type combinations to find worst performer"
+}
+
+WRONG:
+❌ {
+  "filters": [{"column": "engagement_rate", "operator": "less_than", "value": 5}],
+  "limit": 1  // Don't restrict to only the worst - need comparison context
+}
+
+Remember: User needs to see ALL categories compared, not just the worst/best one!
+`;
+    }
+
+    if (queryType === 'ranking_individual') {
+      prompt += `
+═══════════════════════════════════════════════════════════
+⚠️ FIX 3: INDIVIDUAL RANKING QUERY DETECTED
+═══════════════════════════════════════════════════════════
+
+User is asking for top/best/worst individual ITEMS (posts, campaigns, etc).
+
+CRITICAL RULES:
+1. DO NOT use groupBy (want individual records, not grouped summaries)
+2. DO NOT use aggregate (want actual items, not aggregated statistics)
+3. USE sortBy to rank items by the relevant metric
+4. LIMIT to the requested number of items
+
+Example: "Top 5 posts with most likes"
+User wants INDIVIDUAL posts, not grouped data
+
+CORRECT:
+{
+  "filters": [],  // No filters unless specified
+  "groupBy": [],  // ⚠️ NO groupBy - want individual posts
+  "aggregate": {},  // ⚠️ NO aggregate - want actual records
+  "sortBy": {
+    "column": "likes",
+    "order": "desc"
+  },
+  "limit": 5,
+  "interpretation": "Finding top 5 individual posts by likes count"
+}
+
+WRONG:
+❌ {
+  "groupBy": ["post_id"],  // Don't group for individual items
+  "aggregate": {"likes": "sum"}  // Don't aggregate
+}
+
+Remember: Return actual individual records, not aggregated summaries!
+`;
+    }
+
+    if (queryType === 'temporal') {
+      prompt += `
+═══════════════════════════════════════════════════════════
+⚠️ FIX 2: TEMPORAL QUERY DETECTED
+═══════════════════════════════════════════════════════════
+
+User is asking about specific time periods (Q1/Q2/Q3/Q4/months).
+
+CRITICAL RULES:
+1. Use OR logic with type: "or" for quarter queries (covers 3 months)
+2. Use "contains" operator for dates (NEVER "equals")
+3. Date format is DD-MM-YYYY
+4. Map quarters correctly: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec
+
+Example: "Q3 performance"
+CORRECT:
+{
+  "filters": [
+    {
+      "type": "or",
+      "conditions": [
+        {"column": "posted_date", "operator": "contains", "value": "07-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "08-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+      ]
+    }
+  ]
+}
+`;
+    }
+
+    if (queryType === 'counting') {
+      prompt += `
+═══════════════════════════════════════════════════════════
+⚠️ FIX 1: COUNTING QUERY DETECTED
+═══════════════════════════════════════════════════════════
+
+User is asking "how many" or "count".
+
+CRITICAL RULES:
+1. Use actual column names like "post_id" or "campaign_id" for counting
+2. NEVER use placeholder names like "metric_column", "column_name", "field"
+3. Use {"post_id": "count"} for counting posts
+4. Use {"campaign_id": "count"} for counting campaigns
+
+Example: "How many campaigns?"
+CORRECT:
+{
+  "aggregate": {
+    "campaign_id": "count"  // ✅ Actual column name
+  }
+}
+
+WRONG:
+{
+  "aggregate": {
+    "metric_column": "count"  // ❌ This will fail validation
+  }
+}
+`;
+    }
+
+    prompt += `
 
 IMPORTANT RULES:
 1. Return ONLY the JSON object, no markdown formatting or explanations outside the JSON
@@ -251,12 +1159,12 @@ Response:
     "column": "engagement_rate",
     "order": "desc"
   },
-  "limit": 5,
-  "interpretation": "User wants to compare platform performance in November 2025 based on engagement metrics"
+  "limit": 10,
+  "interpretation": "Comparing all platforms by average engagement rate in November 2025"
 }
 
 Example 2:
-Query: "Show me videos from Instagram with more than 5% engagement"
+Query: "Show me the top 3 posts with most likes on Instagram"
 Response:
 {
   "filters": [
@@ -265,82 +1173,6 @@ Response:
       "operator": "equals",
       "value": "Instagram",
       "reason": "User specified Instagram"
-    },
-    {
-      "column": "media_type",
-      "operator": "equals",
-      "value": "video",
-      "reason": "User wants video content only"
-    },
-    {
-      "column": "engagement_rate",
-      "operator": "greater_than",
-      "value": 5,
-      "reason": "User specified >5% engagement threshold"
-    }
-  ],
-  "groupBy": [],
-  "aggregate": {},
-  "sortBy": {
-    "column": "engagement_rate",
-    "order": "desc"
-  },
-  "limit": 20,
-  "interpretation": "User wants a list of Instagram video posts with engagement rate above 5%, sorted by engagement"
-}
-
-Example 3:
-Query: "Compare Facebook and Instagram campaigns in terms of ROI"
-Response:
-{
-  "filters": [
-    {
-      "type": "or",
-      "conditions": [
-        {
-          "column": "platform",
-          "operator": "equals",
-          "value": "Facebook Ads"
-        },
-        {
-          "column": "platform",
-          "operator": "equals",
-          "value": "Instagram Ads"
-        }
-      ],
-      "reason": "User wants to compare these two platforms"
-    }
-  ],
-  "groupBy": ["platform"],
-  "aggregate": {
-    "roas": "mean",
-    "total_spend": "sum",
-    "revenue": "sum"
-  },
-  "sortBy": {
-    "column": "roas",
-    "order": "desc"
-  },
-  "limit": 2,
-  "interpretation": "User wants to compare ROI (ROAS) between Facebook Ads and Instagram Ads campaigns"
-}
-
-Example 4:
-Query: "Most liked post on Instagram for November"
-Response:
-{
-  "filters": [
-    {
-      "column": "platform",
-      "operator": "equals",
-      "value": "Instagram",
-      "reason": "User specified Instagram"
-    },
-    {
-      "column": "posted_date",
-      "operator": "contains",
-      "value": "11-2025",
-      "reason": "November = month 11"
     }
   ],
   "groupBy": [],
@@ -349,203 +1181,319 @@ Response:
     "column": "likes",
     "order": "desc"
   },
-  "limit": 1,
-  "interpretation": "User wants the single Instagram post with the most likes from November 2025"
+  "limit": 3,
+  "interpretation": "Finding the 3 individual Instagram posts with highest likes count"
 }
 
-Example 5:
-Query: "Which is the worst performing post type and on which platform?"
+Example 3:
+Query: "How many Facebook posts have more than 100 comments?"
 Response:
 {
   "filters": [
     {
-      "column": "post_type",
+      "column": "platform",
       "operator": "equals",
-      "value": "organic",
-      "reason": "Only analyze organic posts which have engagement metrics"
+      "value": "Facebook",
+      "reason": "User specified Facebook"
+    },
+    {
+      "column": "comments",
+      "operator": "greater_than",
+      "value": 100,
+      "reason": "User wants posts with more than 100 comments"
     }
   ],
-  "groupBy": ["media_type", "platform"],
+  "groupBy": [],
+  "aggregate": {
+    "post_id": "count"
+  },
+  "sortBy": {},
+  "interpretation": "Counting Facebook posts that have more than 100 comments"
+}
+
+Example 4:
+Query: "Compare Instagram vs Facebook performance in Q3"
+Response:
+{
+  "filters": [
+    {
+      "type": "or",
+      "conditions": [
+        {"column": "posted_date", "operator": "contains", "value": "07-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "08-2025"},
+        {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+      ]
+    },
+    {
+      "column": "platform",
+      "operator": "in",
+      "value": ["Instagram", "Facebook"],
+      "reason": "User wants to compare these two platforms"
+    }
+  ],
+  "groupBy": ["platform"],
   "aggregate": {
     "engagement_rate": "mean",
-    "likes": "sum",
-    "comments": "sum",
-    "shares": "sum"
+    "reach": "sum"
   },
   "sortBy": {
     "column": "engagement_rate",
-    "order": "asc"
+    "order": "desc"
   },
-  "limit": 1,
-  "interpretation": "User wants to find the worst performing content type (media_type like image/video/carousel) and platform combination based on engagement rate"
+  "limit": 2,
+  "interpretation": "Comparing Instagram and Facebook performance metrics during Q3 2025 (July-September)"
 }
 
-Example 6 (Ambiguous query needing clarification):
-Query: "Are there more engagements during the week or weekends?"
-Response:
-{
-  "needsClarification": true,
-  "clarificationNeeded": "Which platform should I analyze for week vs weekend engagement?",
-  "suggestedOptions": [
-    {"label": "All Platforms Combined", "description": "Aggregate engagement across all platforms"},
-    {"label": "Instagram", "description": "Analyze Instagram posts only"},
-    {"label": "Facebook", "description": "Analyze Facebook posts only"},
-    {"label": "Twitter", "description": "Analyze Twitter posts only"},
-    {"label": "LinkedIn", "description": "Analyze LinkedIn posts only"}
-  ],
-  "interpretation": "User wants to compare weekday vs weekend engagement but didn't specify which platform to analyze"
-}
+Now process the user's query and return ONLY valid JSON.`;
 
-Example 7:
-Query: "Best Post on Twitter"
-Response:
-{
-  "needsClarification": true,
-  "clarificationNeeded": "What metric should I use to determine the 'best' post?",
-  "suggestedOptions": [
-    {"label": "Most Likes", "description": "Post with highest number of likes"},
-    {"label": "Highest Engagement Rate", "description": "Post with best engagement percentage"},
-    {"label": "Most Reach", "description": "Post that reached most people"},
-    {"label": "Most Shares", "description": "Post shared most frequently"}
-  ],
-  "interpretation": "User wants the best Twitter post but 'best' is ambiguous - could mean likes, engagement, reach, or shares"
-}
-
-Example 8 (CLARIFIED QUERY):
-Query: "Best Post on Twitter [Selected: Highest Engagement Rate]"
-Response:
-{
-  "needsClarification": false,
-  "filters": [{"column": "platform", "operator": "equals", "value": "Twitter"}],
-  "groupBy": null,
-  "aggregate": null,
-  "sortBy": {"column": "engagement_rate", "order": "DESC"},
-  "limit": 1,
-  "interpretation": "User selected engagement rate as the metric - finding Twitter post with highest engagement_rate"
-}
-
-Example 9 (CLARIFIED QUERY - DATA LIMITATION):
-Query: "Are there more engagements during the week or weekends? [Selected: All Platforms Combined]"
-Response:
-{
-  "needsClarification": false,
-  "filters": [],
-  "groupBy": ["posted_date"],
-  "aggregate": {"column": "likes", "function": "SUM", "additionalColumns": ["comments", "shares"]},
-  "sortBy": {"column": "total_likes", "order": "DESC"},
-  "limit": 200,
-  "interpretation": "User selected all platforms. Dataset lacks day_type column, but we can group by posted_date and let the LLM analyze the dates to identify weekday vs weekend patterns. Aggregating likes, comments, and shares as engagement metrics."
-}
-
-Now generate the filter specification for the user's query above. Return ONLY valid JSON.`;
+    return prompt;
   }
 
   /**
-   * Format metadata for LLM prompt (concise version)
+   * Format metadata for prompt (keep existing implementation)
    */
   formatMetadataForPrompt(metadata) {
     return {
-      totalFiles: metadata.files.length,
       totalRecords: metadata.files.reduce((sum, f) => sum + f.recordCount, 0),
+      files: metadata.files.map(f => ({
+        name: f.name,
+        recordCount: f.recordCount,
+        type: f.type
+      })),
       columns: metadata.columns,
-      categoricalColumns: Object.keys(metadata.uniqueValues).filter(col =>
+      numericColumns: metadata.numericColumns,
+      categoricalColumns: Object.keys(metadata.uniqueValues || {}).filter(col =>
         Array.isArray(metadata.uniqueValues[col])
-      ).reduce((obj, col) => {
-        obj[col] = metadata.uniqueValues[col];
-        return obj;
-      }, {}),
-      numericColumns: metadata.numericColumns.reduce((obj, col) => {
-        if (metadata.uniqueValues[col] && typeof metadata.uniqueValues[col] === 'object') {
-          obj[col] = metadata.uniqueValues[col];
-        }
-        return obj;
-      }, {}),
+      ),
       dateColumns: metadata.dateColumns,
-      sampleRecords: metadata.sampleData.slice(0, 2)
+      possibleValues: metadata.uniqueValues,
+      sampleData: metadata.sampleData ? metadata.sampleData.slice(0, 1) : []
     };
   }
 
   /**
-   * Get date N days ago in DD-MM-YYYY format
-   */
-  getDateNDaysAgo(days) {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}-${month}-${year}`;
-  }
-
-  /**
-   * Clean up invalid or malformed filter specifications from LLM
-   * Fixes common issues like empty sortBy, invalid limit, etc.
-   *
-   * @param {Object} filterSpec - The filter specification to clean
+   * Clean up LLM-generated filter spec (keep existing implementation)
    */
   cleanupFilterSpec(filterSpec) {
-    // Fix empty sortBy object - remove it
-    if (filterSpec.sortBy && typeof filterSpec.sortBy === 'object') {
-      if (!filterSpec.sortBy.column || Object.keys(filterSpec.sortBy).length === 0) {
-        console.log('   🧹 Removing empty sortBy object');
-        delete filterSpec.sortBy;
-      }
+    // Remove empty arrays/objects
+    if (filterSpec.filters && filterSpec.filters.length === 0) {
+      delete filterSpec.filters;
+    }
+    if (filterSpec.groupBy && filterSpec.groupBy.length === 0) {
+      delete filterSpec.groupBy;
+    }
+    if (filterSpec.aggregate && Object.keys(filterSpec.aggregate).length === 0) {
+      delete filterSpec.aggregate;
     }
 
-    // Fix invalid limit (0 or negative) - set to default 100
-    if (filterSpec.limit !== undefined) {
-      if (typeof filterSpec.limit !== 'number' || filterSpec.limit < 1) {
-        console.log(`   🧹 Fixing invalid limit: ${filterSpec.limit} → 100`);
-        filterSpec.limit = 100;
-      }
+    // Ensure limit is reasonable
+    if (filterSpec.limit && filterSpec.limit > 100) {
+      filterSpec.limit = 100;
     }
 
-    // Fix empty aggregate object - remove it
-    if (filterSpec.aggregate && typeof filterSpec.aggregate === 'object') {
-      if (Object.keys(filterSpec.aggregate).length === 0) {
-        console.log('   🧹 Removing empty aggregate object');
-        delete filterSpec.aggregate;
+    // Remove null/undefined values
+    Object.keys(filterSpec).forEach(key => {
+      if (filterSpec[key] === null || filterSpec[key] === undefined) {
+        delete filterSpec[key];
       }
-    }
-
-    // Fix empty groupBy array - remove it
-    if (filterSpec.groupBy && Array.isArray(filterSpec.groupBy)) {
-      if (filterSpec.groupBy.length === 0) {
-        console.log('   🧹 Removing empty groupBy array');
-        delete filterSpec.groupBy;
-      }
-    }
-
-    // Fix empty filters array - remove it
-    if (filterSpec.filters && Array.isArray(filterSpec.filters)) {
-      if (filterSpec.filters.length === 0) {
-        console.log('   🧹 Removing empty filters array');
-        delete filterSpec.filters;
-      }
-    }
+    });
   }
 
   /**
-   * Normalize platform names to match actual data values
-   * Maps generic platform names to specific variants found in the data
-   *
-   * @param {Object} filterSpec - The filter specification to normalize
-   * @param {Object} metadata - Dataset metadata with actual platform values
+   * V4.3: Get detailed explanation for complexity type
+   */
+  getComplexityExplanation(category, query) {
+    const explanations = {
+      analysis: 'Complex statistical or correlation analysis requires specialized processing not currently available.',
+      derivedMetrics: 'This metric needs to be calculated from raw data using a specific formula that must be defined first.',
+      transformations: 'Data transformation and adjustment require baseline values or normalization factors not in the dataset.',
+      statistics: 'Advanced statistical calculations (percentiles, distributions) require statistical processing capabilities.',
+      segmentation: 'Cohort analysis and segmentation require grouping logic beyond simple platform/date filtering.',
+      causation: 'Causal analysis and attribution require historical comparison data and statistical methods.',
+      detection: 'Anomaly detection requires baseline calculations and deviation analysis not currently available.',
+      nlp: 'Natural language processing and text analysis require the actual text content which is not in the dataset.',
+      timeSeries: 'Time series analysis like seasonality adjustment requires historical baselines and trend analysis.',
+      prediction: 'Predictive analysis requires machine learning models trained on historical data.'
+    };
+
+    return explanations[category] || 'This query requires analysis capabilities beyond current system scope.';
+  }
+
+  /**
+   * V4.3: Get available data summary
+   */
+  getAvailableData(metadata) {
+    const columns = metadata.columns || {};
+    const available = [];
+
+    // Engagement metrics
+    if (columns.engagement_rate) available.push('Engagement rates');
+    if (columns.likes) available.push('Likes, comments, shares');
+    if (columns.reach) available.push('Reach and impressions');
+
+    // Campaign metrics
+    if (columns.roas) available.push('ROAS (Return on Ad Spend)');
+    if (columns.conversions) available.push('Conversions and conversion rates');
+    if (columns.ctr) available.push('Click-through rates (CTR)');
+
+    // Platform/time data
+    if (columns.platform) available.push('Platform breakdowns');
+    if (columns.posted_date) available.push('Date/time data');
+
+    return available.length > 0 ? available : ['Basic metrics and platform data'];
+  }
+
+  /**
+   * V4.3: Get missing capabilities for category
+   */
+  getMissingCapabilities(category) {
+    const missing = {
+      analysis: ['Correlation coefficients', 'Statistical significance', 'Trend predictions'],
+      derivedMetrics: ['Pre-calculated scores', 'Composite indices', 'Custom formulas'],
+      transformations: ['Normalized values', 'Seasonality adjustments', 'Baseline comparisons'],
+      statistics: ['Percentile rankings', 'Distribution curves', 'Standard deviations'],
+      segmentation: ['User cohorts', 'Audience segments', 'Behavioral clusters'],
+      causation: ['Causal relationships', 'Attribution models', 'Impact factors'],
+      detection: ['Anomaly scores', 'Outlier identification', 'Deviation alerts'],
+      nlp: ['Text content', 'Sentiment scores', 'Keyword extraction'],
+      timeSeries: ['Seasonality factors', 'Cyclical patterns', 'YoY comparisons'],
+      prediction: ['Future projections', 'Predictive models', 'Forecast data']
+    };
+
+    return missing[category] || ['Advanced analysis capabilities'];
+  }
+
+  /**
+   * V4.3: Get helpful alternatives for complexity type
+   */
+  getSimilarAlternatives(category, metadata) {
+    const alternatives = {
+      analysis: [
+        {
+          option: 'Show me performance metrics by platform',
+          description: 'Compare platforms side-by-side to spot patterns manually',
+          reasoning: 'Visual comparison can reveal correlations'
+        },
+        {
+          option: 'Show me top and bottom performing content',
+          description: 'Identify extremes to understand what works and what doesn\'t',
+          reasoning: 'Range analysis helps identify trends'
+        },
+        {
+          option: 'Export data for external analysis',
+          description: 'Get raw data to perform custom analysis in Excel/Python',
+          reasoning: 'Full control over analysis methodology'
+        }
+      ],
+      derivedMetrics: [
+        {
+          option: 'Show me the underlying metrics',
+          description: 'See raw data (shares, reach) that would feed into the calculation',
+          reasoning: 'You can calculate the derived metric manually'
+        },
+        {
+          option: 'Show me posts sorted by related metrics',
+          description: 'Sort by shares or engagement as proxy measures',
+          reasoning: 'Related metrics often correlate with derived ones'
+        },
+        {
+          option: 'Define how to calculate this metric',
+          description: 'Specify the formula and I can help compute it',
+          reasoning: 'Custom calculations possible with clear formulas'
+        }
+      ],
+      nlp: [
+        {
+          option: 'Show me posts with highest comment counts',
+          description: 'High comment volume may indicate engaging or controversial content',
+          reasoning: 'Proxy for sentiment intensity'
+        },
+        {
+          option: 'Show me posts with high engagement rates',
+          description: 'Overall engagement correlates with positive reception',
+          reasoning: 'Engagement is measurable sentiment indicator'
+        },
+        {
+          option: 'Show me top performing content by platform',
+          description: 'Successful content likely has positive sentiment',
+          reasoning: 'Performance implies audience approval'
+        }
+      ]
+    };
+
+    // Default alternatives for categories not specifically defined
+    const defaultAlternatives = [
+      {
+        option: 'Show me related available metrics',
+        description: 'See what data is available that relates to your question',
+        reasoning: 'Find closest available alternative'
+      },
+      {
+        option: 'Show me overall performance summary',
+        description: 'Get comprehensive view of all available metrics',
+        reasoning: 'Broad view may reveal insights'
+      },
+      {
+        option: 'Help me rephrase my question',
+        description: 'Reframe your question using available data',
+        reasoning: 'Different angle might be answerable'
+      }
+    ];
+
+    return alternatives[category] || defaultAlternatives;
+  }
+
+  /**
+   * V4.3: Get suggested actions for user
+   */
+  getSuggestedActions(category) {
+    const actions = {
+      analysis: [
+        'Export data for statistical analysis in external tools',
+        'Ask for specific metrics instead of correlations',
+        'Focus on direct comparisons between platforms or time periods'
+      ],
+      derivedMetrics: [
+        'Ask for the raw metrics that would feed into this calculation',
+        'Define the specific formula you want calculated',
+        'Use simpler proxy metrics that are directly available'
+      ],
+      nlp: [
+        'Focus on engagement metrics as sentiment proxies',
+        'Analyze comment volume and sharing patterns',
+        'Look at performance trends to infer content reception'
+      ],
+      prediction: [
+        'Analyze past trends to inform future decisions',
+        'Compare time periods to spot patterns',
+        'Focus on current performance rather than predictions'
+      ]
+    };
+
+    const defaultActions = [
+      'Simplify your question to use available metrics',
+      'Ask to see what data is available',
+      'Rephrase focusing on direct measurements'
+    ];
+
+    return actions[category] || defaultActions;
+  }
+
+
+
+
+  /**
+   * Normalize platform names in filters (keep existing implementation)
    */
   normalizePlatformNames(filterSpec, metadata) {
-    if (!filterSpec.filters || !metadata.columns) {
-      return;
-    }
+    if (!filterSpec.filters) return;
 
-    // Find the platform column and its actual values
-    const platformColumn = metadata.columns.find(col =>
-      col && col.name &&
-      (col.name.toLowerCase() === 'platform' ||
-       col.name.toLowerCase() === 'source' ||
-       col.name.toLowerCase() === 'channel')
-    );
+    // Find platform column in metadata
+    const platformColumn = metadata.uniqueValues && metadata.uniqueValues.platform
+      ? { possibleValues: metadata.uniqueValues.platform }
+      : null;
 
-    if (!platformColumn || !platformColumn.possibleValues) {
+    if (!platformColumn) {
       return;
     }
 
@@ -607,9 +1555,9 @@ Now generate the filter specification for the user's query above. Return ONLY va
 
       // Handle simple filters
       if (filter.column &&
-          (filter.column.toLowerCase() === 'platform' ||
-           filter.column.toLowerCase() === 'source' ||
-           filter.column.toLowerCase() === 'channel')) {
+        (filter.column.toLowerCase() === 'platform' ||
+          filter.column.toLowerCase() === 'source' ||
+          filter.column.toLowerCase() === 'channel')) {
 
         // Normalize single value
         if (typeof filter.value === 'string') {

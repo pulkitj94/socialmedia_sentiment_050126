@@ -54,3 +54,19 @@ temp/
 # Optional
 .npm
 .eslintcache
+
+# Backup files (use git for version control!)
+*.backup
+*_BACKUP.js
+*_BACKUP.md
+*.bak
+*.old
+
+# Session notes and dev logs (keep out of repo)
+SESSION_*.md
+*_SUMMARY.md
+*_STATUS.md
+*_ROADMAP.md
+
+# Claude Code artifacts
+.claude/

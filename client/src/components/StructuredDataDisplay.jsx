@@ -1,13 +1,23 @@
 import { useState } from 'react';
 import { exportToCSV, exportToJSON, exportToExcel, copyToClipboard, printData } from '../utils/exportUtils';
-import DataVisualization from './DataVisualization';
 
 /**
- * Component to display structured data from API responses
- * Renders data tables, insights, and statistics separately from narrative
+ * Component to display structured data with Progressive Disclosure
+ * - Always shows narrative/answer first
+ * - Auto-expands data table for complex queries (>5 rows)
+ * - Collapsible sections instead of tabs
+ * - Export always accessible
  */
 function StructuredDataDisplay({ data, insights, narrative, metadata }) {
-  const [activeTab, setActiveTab] = useState('overview');
+  // Smart defaults: auto-expand data table if complex query
+  const shouldAutoExpandData = data && data.length > 5;
+  const shouldAutoExpandInsights = insights && (
+    (insights.statistics && Object.keys(insights.statistics).length > 2) ||
+    (insights.topResults && insights.topResults.length > 0)
+  );
+
+  const [isDataExpanded, setIsDataExpanded] = useState(shouldAutoExpandData);
+  const [isInsightsExpanded, setIsInsightsExpanded] = useState(shouldAutoExpandInsights);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   if (!data && !insights && !narrative) {
@@ -42,79 +52,80 @@ function StructuredDataDisplay({ data, insights, narrative, metadata }) {
 
   return (
     <div className="space-y-4">
-      {/* Tab Navigation with Export Button */}
-      <div className="flex items-center justify-between border-b border-gray-200">
-        <div className="flex gap-2">
-        {narrative && (
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'overview'
-                ? 'border-b-2 border-primary-600 text-primary-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            📊 Overview
-          </button>
-        )}
-        {data && data.length > 0 && (
-          <button
-            onClick={() => setActiveTab('data')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'data'
-                ? 'border-b-2 border-primary-600 text-primary-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            📋 Data ({data.length})
-          </button>
-        )}
-        {insights && (
-          <button
-            onClick={() => setActiveTab('insights')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'insights'
-                ? 'border-b-2 border-primary-600 text-primary-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            💡 Insights
-          </button>
-        )}
-        {data && data.length > 0 && (
-          <button
-            onClick={() => setActiveTab('charts')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'charts'
-                ? 'border-b-2 border-primary-600 text-primary-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            📈 Charts
-          </button>
-        )}
-        {metadata && (
-          <button
-            onClick={() => setActiveTab('metadata')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'metadata'
-                ? 'border-b-2 border-primary-600 text-primary-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            ⚙️ Metadata
-          </button>
-        )}
+      {/* Always show narrative first (the answer) */}
+      {narrative && (
+        <div className="prose prose-sm max-w-none">
+          <NarrativeContent content={narrative} />
         </div>
+      )}
 
-        {/* Export Button */}
-        {data && data.length > 0 && (
+      {/* Collapsible Data Section */}
+      {data && data.length > 0 && (
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setIsDataExpanded(!isDataExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">
+                📋 Data Table ({data.length} {data.length === 1 ? 'record' : 'records'})
+              </span>
+            </div>
+            <svg
+              className={`w-5 h-5 text-gray-500 transition-transform ${isDataExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isDataExpanded && (
+            <div className="p-4 bg-white">
+              <DataTable data={data} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Collapsible Insights Section */}
+      {insights && (
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setIsInsightsExpanded(!isInsightsExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">
+                💡 Insights & Statistics
+              </span>
+            </div>
+            <svg
+              className={`w-5 h-5 text-gray-500 transition-transform ${isInsightsExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isInsightsExpanded && (
+            <div className="p-4 bg-white">
+              <InsightsPanel insights={insights} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Export Button - Always Prominent */}
+      {data && data.length > 0 && (
+        <div className="flex justify-end">
           <div className="relative">
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
             >
-              📥 Export
+              📥 Export Data
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -159,38 +170,8 @@ function StructuredDataDisplay({ data, insights, narrative, metadata }) {
               </div>
             )}
           </div>
-        )}
-      </div>
-
-      {/* Tab Content */}
-      <div className="mt-4">
-        {/* Overview Tab - Narrative */}
-        {activeTab === 'overview' && narrative && (
-          <div className="prose prose-sm max-w-none">
-            <NarrativeContent content={narrative} />
-          </div>
-        )}
-
-        {/* Data Tab - Structured Data Table */}
-        {activeTab === 'data' && data && data.length > 0 && (
-          <DataTable data={data} />
-        )}
-
-        {/* Insights Tab - Statistics and Key Findings */}
-        {activeTab === 'insights' && insights && (
-          <InsightsPanel insights={insights} />
-        )}
-
-        {/* Charts Tab - Data Visualizations */}
-        {activeTab === 'charts' && data && data.length > 0 && (
-          <DataVisualization data={data} insights={insights} metadata={metadata} />
-        )}
-
-        {/* Metadata Tab - Query Metadata */}
-        {activeTab === 'metadata' && metadata && (
-          <MetadataPanel metadata={metadata} />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -315,60 +296,76 @@ function InsightsPanel({ insights }) {
         </div>
       )}
 
-      {/* Statistics */}
+      {/* Statistics - Smart Display */}
       {insights.statistics && Object.keys(insights.statistics).length > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <h4 className="text-sm font-semibold text-green-900 mb-3">📈 Statistics</h4>
           <div className="space-y-3">
-            {Object.entries(insights.statistics).map(([key, stats]) => (
-              <div key={key} className="bg-white rounded p-3">
-                <div className="text-xs font-medium text-gray-500 uppercase mb-2">
-                  {key.replace(/_/g, ' ')}
+            {Object.entries(insights.statistics).map(([key, stats]) => {
+              // Check if all values are the same (single record case)
+              const isSingleRecord = stats.count === 1 ||
+                (stats.min === stats.max && stats.max === stats.average);
+
+              return (
+                <div key={key} className="bg-white rounded p-3">
+                  <div className="text-xs font-medium text-gray-500 uppercase mb-2">
+                    {key.replace(/_/g, ' ')}
+                  </div>
+
+                  {isSingleRecord ? (
+                    // For single record, show only the value (not min/max/avg)
+                    <div className="text-lg font-semibold text-gray-900">
+                      {formatNumber(stats.average || stats.total || stats.min)}
+                    </div>
+                  ) : (
+                    // For multiple records, show the full breakdown
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {/* Only show min/max if they're different */}
+                      {stats.min !== undefined && stats.min !== stats.max && (
+                        <div>
+                          <span className="text-gray-600">Min:</span>
+                          <span className="ml-2 font-semibold text-gray-900">
+                            {formatNumber(stats.min)}
+                          </span>
+                        </div>
+                      )}
+                      {stats.max !== undefined && stats.min !== stats.max && (
+                        <div>
+                          <span className="text-gray-600">Max:</span>
+                          <span className="ml-2 font-semibold text-gray-900">
+                            {formatNumber(stats.max)}
+                          </span>
+                        </div>
+                      )}
+                      {stats.average !== undefined && (
+                        <div>
+                          <span className="text-gray-600">Avg:</span>
+                          <span className="ml-2 font-semibold text-gray-900">
+                            {formatNumber(stats.average)}
+                          </span>
+                        </div>
+                      )}
+                      {stats.total !== undefined && (
+                        <div>
+                          <span className="text-gray-600">Total:</span>
+                          <span className="ml-2 font-semibold text-gray-900">
+                            {formatNumber(stats.total)}
+                          </span>
+                        </div>
+                      )}
+                      {stats.count !== undefined && stats.count > 1 && (
+                        <div>
+                          <span className="text-gray-600">Count:</span>
+                          <span className="ml-2 font-semibold text-gray-900">
+                            {stats.count}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  {stats.min !== undefined && (
-                    <div>
-                      <span className="text-gray-600">Min:</span>
-                      <span className="ml-2 font-semibold text-gray-900">
-                        {formatNumber(stats.min)}
-                      </span>
-                    </div>
-                  )}
-                  {stats.max !== undefined && (
-                    <div>
-                      <span className="text-gray-600">Max:</span>
-                      <span className="ml-2 font-semibold text-gray-900">
-                        {formatNumber(stats.max)}
-                      </span>
-                    </div>
-                  )}
-                  {stats.average !== undefined && (
-                    <div>
-                      <span className="text-gray-600">Avg:</span>
-                      <span className="ml-2 font-semibold text-gray-900">
-                        {formatNumber(stats.average)}
-                      </span>
-                    </div>
-                  )}
-                  {stats.total !== undefined && (
-                    <div>
-                      <span className="text-gray-600">Total:</span>
-                      <span className="ml-2 font-semibold text-gray-900">
-                        {formatNumber(stats.total)}
-                      </span>
-                    </div>
-                  )}
-                  {stats.count !== undefined && (
-                    <div>
-                      <span className="text-gray-600">Count:</span>
-                      <span className="ml-2 font-semibold text-gray-900">
-                        {stats.count}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -404,78 +401,6 @@ function InsightsPanel({ insights }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Metadata panel showing query processing information
- */
-function MetadataPanel({ metadata }) {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        {metadata.processingTimeMs !== undefined && (
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-gray-600">Processing Time</div>
-            <div className="text-lg font-semibold text-gray-900">
-              {(metadata.processingTimeMs / 1000).toFixed(2)}s
-            </div>
-          </div>
-        )}
-        {metadata.llmCalls !== undefined && (
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-gray-600">LLM Calls</div>
-            <div className="text-lg font-semibold text-gray-900">{metadata.llmCalls}</div>
-          </div>
-        )}
-        {metadata.recordsAnalyzed !== undefined && (
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-gray-600">Records Analyzed</div>
-            <div className="text-lg font-semibold text-gray-900">
-              {metadata.recordsAnalyzed.toLocaleString()}
-            </div>
-          </div>
-        )}
-        {metadata.recordsTotal !== undefined && (
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-gray-600">Total Records</div>
-            <div className="text-lg font-semibold text-gray-900">
-              {metadata.recordsTotal.toLocaleString()}
-            </div>
-          </div>
-        )}
-        {metadata.resultsReturned !== undefined && (
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-gray-600">Results Returned</div>
-            <div className="text-lg font-semibold text-gray-900">
-              {metadata.resultsReturned}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Interpretation */}
-      {metadata.interpretation && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-blue-900 mb-2">🎯 Query Interpretation</h4>
-          <p className="text-sm text-blue-800">{metadata.interpretation}</p>
-        </div>
-      )}
-
-      {/* Filters Applied */}
-      {metadata.filtersApplied && metadata.filtersApplied.length > 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-green-900 mb-2">🔍 Filters Applied</h4>
-          <div className="space-y-2">
-            {metadata.filtersApplied.map((filter, idx) => (
-              <div key={idx} className="bg-white rounded p-2 text-xs font-mono">
-                {formatFilter(filter)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -537,19 +462,6 @@ function formatNumber(value) {
   }
 
   return num.toFixed(2);
-}
-
-/**
- * Format filter object for display
- */
-function formatFilter(filter) {
-  if (filter.type === 'and' || filter.type === 'or') {
-    const conditions = filter.conditions.map(c =>
-      `${c.column} ${c.operator} ${JSON.stringify(c.value)}`
-    ).join(` ${filter.type.toUpperCase()} `);
-    return conditions;
-  }
-  return `${filter.column} ${filter.operator} ${JSON.stringify(filter.value)}`;
 }
 
 export default StructuredDataDisplay;

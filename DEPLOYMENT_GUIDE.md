@@ -1,8 +1,8 @@
-# Deployment Guide - Social Command Center
+# Deployment Guide - Social Media Analytics Platform
 
-**Version:** 2.0
-**Last Updated:** December 25, 2024
-**Status:** Production Ready
+**Version:** 3.0
+**Last Updated:** January 4, 2026
+**Status:** Production Ready with Sentiment Analysis
 
 ---
 
@@ -27,6 +27,8 @@
 
 - **Node.js:** v18.x or higher (v20.x recommended)
 - **npm:** v9.x or higher (comes with Node.js)
+- **Python:** v3.8 or higher (for sentiment analysis)
+- **pip:** Python package manager
 - **Git:** For version control
 
 ### Required Accounts
@@ -40,13 +42,13 @@
 
 **Development:**
 - RAM: 4GB minimum, 8GB recommended
-- Storage: 500MB free space
+- Storage: 1GB free space (for ML models)
 - OS: Windows, macOS, or Linux
 
 **Production:**
-- RAM: 2GB minimum, 4GB recommended
-- Storage: 1GB free space
-- CPU: 1 core minimum, 2 cores recommended
+- RAM: 4GB minimum, 8GB recommended (for ML models)
+- Storage: 2GB free space (for ML models and data)
+- CPU: 2 cores minimum, 4 cores recommended
 
 ---
 
@@ -69,7 +71,19 @@ npm install
 # Install client dependencies
 cd ../client
 npm install
+
+# Install Python dependencies for sentiment analysis
+cd ../scripts
+pip install pandas transformers torch openai python-dotenv
+# Note: torch is required for transformers models
 ```
+
+**Python Dependencies:**
+- `pandas`: Data processing
+- `transformers`: Hugging Face ML models for sentiment analysis
+- `torch`: PyTorch (required by transformers)
+- `openai`: OpenAI API for reply generation
+- `python-dotenv`: Environment variable management
 
 ---
 
@@ -115,21 +129,47 @@ Place your CSV files in the `server/data` directory:
 ```bash
 server/
   data/
-    campaign_performance.csv    # Your social media data
-    instagram_posts.csv          # Optional: Additional data
-    facebook_ads.csv             # Optional: Ad performance
+    # Organic Post Data
+    instagram_organic_posts.csv
+    facebook_organic_posts.csv
+    linkedin_organic_posts.csv
+    twitter_organic_posts.csv
+
+    # Ad Campaign Data
+    instagram_ads_ad_campaigns.csv
+    facebook_ads_ad_campaigns.csv
+    google_ads_ad_campaigns.csv
+
+    # Sentiment Data
+    synthetic_comments_data.csv           # Input: Raw comments
+    enriched_comments_sentiment.csv       # Output: AI-processed
+    sentiment_history.csv                 # Output: Historical trends
+    platform_sentiment_summary.json       # Output: Latest scores
 ```
 
-**Required CSV Columns (minimum):**
+**Required CSV Columns for Post Data:**
 - `platform` - Platform name (Instagram, Facebook, etc.)
 - `posted_date` or `date` - Date in DD-MM-YYYY format
 - Numeric metrics: `likes`, `engagement_rate`, `reach`, etc.
 
-**Example CSV Structure:**
+**Required CSV Columns for Comment Data:**
+- `comment_id` - Unique identifier
+- `platform` - Platform name
+- `comment_text` - The comment content
+- `timestamp` - When comment was posted
+
+**Example Post CSV Structure:**
 ```csv
 platform,posted_date,likes,reach,engagement_rate,media_type
 Instagram,15-11-2025,1234,5678,4.5,video
 Facebook,16-11-2025,890,3456,3.2,image
+```
+
+**Example Comment CSV Structure:**
+```csv
+comment_id,platform,comment_text,timestamp
+1,Instagram,Love this product!,2025-01-04 10:30
+2,Facebook,Terrible service,2025-01-04 11:15
 ```
 
 ### 3. Client Configuration (Optional)
@@ -175,11 +215,37 @@ cd server
 npm start
 ```
 
-Test API:
+**Option 3: Initialize Sentiment Analysis**
+
+Before running the server, initialize sentiment data:
+
 ```bash
+cd scripts
+python3 sentiment_engine.py
+```
+
+This will:
+- Load comments from `synthetic_comments_data.csv`
+- Analyze sentiment using transformers
+- Generate `enriched_comments_sentiment.csv`
+- Create `platform_sentiment_summary.json`
+- Build `sentiment_history.csv`
+
+**Test APIs:**
+
+```bash
+# Test query API
 curl -X POST http://localhost:3001/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "What are the top Instagram posts?"}'
+
+# Test sentiment summary
+curl http://localhost:3001/api/sentiment/summary
+
+# Test simulation
+curl -X POST http://localhost:3001/api/simulate/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"scenario": "crisis"}'
 ```
 
 ### Production Build
@@ -207,16 +273,22 @@ npm run build
 # SSH into your server
 ssh user@your-server-ip
 
+# Update system
+sudo apt-get update && sudo apt-get upgrade -y
+
 # Install Node.js
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
+
+# Install Python 3 and pip
+sudo apt-get install -y python3 python3-pip python3-venv
 
 # Install PM2 (process manager)
 sudo npm install -g pm2
 
 # Clone repository
-git clone https://github.com/yourusername/social-command-center.git
-cd social-command-center
+git clone https://github.com/yourusername/social-media-analytics-platform.git
+cd social-media-analytics-platform
 ```
 
 #### Step 2: Configure Environment
@@ -226,8 +298,13 @@ cd server
 nano .env
 # Add your OPENAI_API_KEY and other config
 
-# Install dependencies
+# Install Node dependencies
 npm install --production
+
+# Install Python dependencies
+cd ../scripts
+pip3 install pandas transformers torch openai python-dotenv
+cd ../server
 ```
 
 #### Step 3: Build Client
@@ -258,16 +335,26 @@ app.get('*', (req, res) => {
 });
 ```
 
-#### Step 5: Start with PM2
+#### Step 5: Initialize Sentiment Data
+
+```bash
+cd ../scripts
+python3 sentiment_engine.py
+cd ../server
+```
+
+#### Step 6: Start with PM2
 
 ```bash
 cd server
-pm2 start index.js --name social-command-center
+pm2 start index.js --name social-analytics-platform
 pm2 save
 pm2 startup  # Follow instructions to enable auto-start
 ```
 
-#### Step 6: Configure Nginx (Optional but Recommended)
+**Note:** The server includes an hourly cron job that runs sentiment simulations automatically. To disable, comment out the cron.schedule block in `server/index.js`.
+
+#### Step 7: Configure Nginx (Optional but Recommended)
 
 ```bash
 sudo apt install nginx
@@ -301,7 +388,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-#### Step 7: SSL Certificate (Let's Encrypt)
+#### Step 8: SSL Certificate (Let's Encrypt)
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
@@ -423,16 +510,19 @@ curl http://localhost:3001/api/chat/health
 
 ```bash
 # View logs
-pm2 logs social-command-center
+pm2 logs social-analytics-platform
 
 # Monitor resources
 pm2 monit
 
 # Restart
-pm2 restart social-command-center
+pm2 restart social-analytics-platform
 
 # View status
 pm2 status
+
+# Check sentiment processing
+tail -f ../scripts/sentiment_engine.log  # If logging is enabled
 ```
 
 ### Log Management
@@ -515,6 +605,37 @@ ls -la server/data/
 cp your_data.csv server/data/
 ```
 
+#### 4a. Python/Sentiment Analysis Errors
+
+**Error: "ModuleNotFoundError: No module named 'transformers'"**
+
+**Solution:**
+```bash
+pip3 install --upgrade pip
+pip3 install transformers torch pandas openai python-dotenv
+```
+
+**Error: "Model download fails"**
+
+**Solution:**
+```bash
+# Ensure internet connection
+# Transformers downloads models from HuggingFace on first run
+# Models are ~500MB, may take time
+
+# Pre-download model (optional)
+python3 -c "from transformers import AutoTokenizer, AutoModelForSequenceClassification; AutoTokenizer.from_pretrained('cardiffnlp/twitter-xlm-roberta-base-sentiment'); AutoModelForSequenceClassification.from_pretrained('cardiffnlp/twitter-xlm-roberta-base-sentiment')"
+```
+
+**Error: "sentiment_engine.py takes too long"**
+
+**Solution:**
+```bash
+# First run downloads ML models (~500MB)
+# Subsequent runs are faster
+# Use GPU if available for faster processing
+```
+
 #### 5. High Memory Usage
 
 **Symptoms:** Server crashes or slows down
@@ -526,8 +647,11 @@ FILTER_CACHE_SIZE=100
 DATA_CACHE_TTL=1800000
 
 # Or increase server memory
-pm2 delete social-command-center
-pm2 start index.js --name social-command-center --max-memory-restart 1G
+pm2 delete social-analytics-platform
+pm2 start index.js --name social-analytics-platform --max-memory-restart 2G
+
+# For sentiment processing, ML models need ~1-2GB RAM
+# Consider upgrading server if running sentiment analysis
 ```
 
 #### 6. Slow Query Performance
@@ -628,21 +752,23 @@ Before deploying to production:
 ### Backup Strategy
 
 **What to backup:**
-- `server/data/` - CSV files
+- `server/data/` - All CSV files (posts, ads, sentiment data)
 - `server/.env` - Environment config
 - Query logs (if enabled)
+- ML model cache (optional, can be re-downloaded)
 
 **Automated backup script:**
 
 ```bash
 #!/bin/bash
-BACKUP_DIR="/backup/social-command-center"
+BACKUP_DIR="/backup/social-analytics-platform"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 # Create backup
 tar -czf "$BACKUP_DIR/backup_$DATE.tar.gz" \
   server/data/ \
-  server/.env
+  server/.env \
+  scripts/
 
 # Keep only last 7 days
 find "$BACKUP_DIR" -name "backup_*.tar.gz" -mtime +7 -delete
@@ -663,9 +789,15 @@ tar -xzf backup_YYYYMMDD_HHMMSS.tar.gz
 # Restore files
 cp -r server/data/* /app/server/data/
 cp server/.env /app/server/.env
+cp -r scripts/* /app/scripts/
+
+# Reinitialize sentiment data (optional)
+cd /app/scripts
+python3 sentiment_engine.py
 
 # Restart
-pm2 restart social-command-center
+cd /app/server
+pm2 restart social-analytics-platform
 ```
 
 ---
@@ -690,25 +822,36 @@ pm2 restart social-command-center
 
 ### Server Costs
 
-**VPS Options:**
-- **DigitalOcean Droplet:** $12/month (2GB RAM)
-- **AWS EC2 t3.small:** ~$15/month
-- **Linode:** $10/month (2GB RAM)
+**VPS Options (with ML model support):**
+- **DigitalOcean Droplet:** $24/month (4GB RAM - recommended for ML)
+- **AWS EC2 t3.medium:** ~$30/month (4GB RAM)
+- **Linode:** $24/month (4GB RAM)
 
-**Total Monthly Cost (10,000 queries):**
-- Server: $10-15
+**Or lightweight option (without local sentiment analysis):**
+- **DigitalOcean Droplet:** $12/month (2GB RAM)
+- Use OpenAI API for sentiment instead of local transformers
+
+**Total Monthly Cost (10,000 queries with sentiment):**
+- Server (4GB): $24-30
 - OpenAI API: $5
-- **Total: $15-20/month**
+- **Total: $29-35/month**
+
+**Budget Option (2GB, API-based sentiment):**
+- Server (2GB): $10-15
+- OpenAI API (queries + sentiment): $10-15
+- **Total: $20-30/month**
 
 ---
 
 ## Next Steps After Deployment
 
 1. **Monitor for 24 hours** - Check logs, performance, errors
-2. **User testing** - Have team members test common queries
-3. **Optimize** - Adjust cache settings based on usage patterns
-4. **Documentation** - Document common queries for users
-5. **Feedback** - Collect user feedback for improvements
+2. **User testing** - Have team members test common queries and sentiment dashboard
+3. **Test sentiment simulations** - Verify crisis, viral, and normal scenarios work
+4. **Optimize** - Adjust cache settings and sentiment thresholds based on usage
+5. **Documentation** - Document common queries and sentiment alert procedures
+6. **Feedback** - Collect user feedback for improvements
+7. **Schedule sentiment runs** - Configure cron job frequency for your needs
 
 ---
 
@@ -716,16 +859,26 @@ pm2 restart social-command-center
 
 **Documentation:**
 - Main README: `README.md`
-- Implementation Summary: `FINAL_IMPLEMENTATION_SUMMARY.md`
-- Current Limitations: `CURRENT_LIMITATIONS.md`
+- Customization Guide: `CUSTOMIZATION_GUIDE.md`
+- Deployment Guide: `DEPLOYMENT_GUIDE.md` (this file)
 
 **Getting Help:**
 - GitHub Issues: [Repository URL]
 - OpenAI Documentation: https://platform.openai.com/docs
 - LangChain Docs: https://docs.langchain.com
+- Hugging Face Transformers: https://huggingface.co/docs/transformers
+
+**Key Features in Production:**
+- ✅ AI-powered query interface
+- ✅ Real-time sentiment monitoring
+- ✅ Multi-platform analytics (Instagram, Facebook, LinkedIn, Twitter)
+- ✅ Automated sentiment simulations
+- ✅ AI reply generation for crisis management
+- ✅ Historical trend tracking
+- ✅ Hourly automated data updates
 
 ---
 
-**Last Updated:** December 25, 2024
-**Version:** 2.0
-**Status:** Production Ready ✅
+**Last Updated:** January 4, 2026
+**Version:** 3.0
+**Status:** Production Ready with Sentiment Analysis ✅

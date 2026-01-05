@@ -1,8 +1,8 @@
-# 🚀 Social Media Command Center
+# 🚀 Social Media Analytics Platform
 
-**AI-Powered Social Media Intelligence System** with Advanced RAG, Hierarchical Chunking, and Rich Metadata
+**AI-Powered Social Media Intelligence & Sentiment Analysis System** with Advanced RAG, Real-time Sentiment Monitoring, and Multi-Platform Analytics
 
-Transform hours of manual reporting into instant, actionable insights.
+Transform hours of manual reporting into instant, actionable insights with real-time sentiment health tracking.
 
 ---
 
@@ -45,6 +45,17 @@ Transform hours of manual reporting into instant, actionable insights.
 - Sample queries for easy exploration
 - Processing time indicators
 - Mobile-friendly
+
+### 📈 Real-Time Sentiment Analysis Dashboard
+- **Multi-Platform Sentiment Monitoring**: Track sentiment health across Instagram, Facebook, LinkedIn, Twitter
+- **AI-Powered Emotion Detection**: Classify comments using transformers (twitter-xlm-roberta-base-sentiment)
+- **Live Health Scores**: Visual gauge charts showing platform-specific sentiment health (0-100)
+- **Trend Visualization**: Historical sentiment tracking with interactive charts
+- **Negative Alert System**: Real-time detection and display of negative comments
+- **AI Reply Generation**: Automated response suggestions for negative comments
+- **Simulation Scenarios**: Test crisis management, viral events, and normal operations
+- **Auto-Refresh**: Live polling every 2 minutes for up-to-date insights
+
 
 ---
 
@@ -146,8 +157,9 @@ npm run dev
 ### Prerequisites
 
 - **Node.js** 18+ and npm
+- **Python** 3.8+ (for sentiment analysis engine)
 - **OpenAI API Key** ([Get one here](https://platform.openai.com/api-keys))
-- 2GB free RAM (for vector embeddings)
+- 2GB free RAM (for vector embeddings and ML models)
 
 ### Step 1: Install Dependencies
 
@@ -159,6 +171,10 @@ npm install
 # Install frontend dependencies
 cd ../client
 npm install
+
+# Install Python dependencies for sentiment analysis
+cd ../scripts
+pip install pandas transformers openai python-dotenv
 ```
 
 ### Step 2: Configure Environment
@@ -177,11 +193,29 @@ NODE_ENV=development
 
 ### Step 3: Prepare Data
 
-The system includes sample data in `/server/data/campaign_performance.csv`.
+The system includes sample data in `/server/data/` with multiple CSV files:
+
+**Organic Post Data Files:**
+- `instagram_organic_posts.csv`
+- `facebook_organic_posts.csv`
+- `linkedin_organic_posts.csv`
+- `twitter_organic_posts.csv`
+
+**Ad Campaign Data Files:**
+- `instagram_ads_ad_campaigns.csv`
+- `facebook_ads_ad_campaigns.csv`
+- `google_ads_ad_campaigns.csv`
+
+**Sentiment Data Files:**
+- `synthetic_comments_data.csv` - Raw comment data
+- `enriched_comments_sentiment.csv` - AI-processed sentiment labels
+- `sentiment_history.csv` - Historical sentiment trends
+- `platform_sentiment_summary.json` - Latest health scores
 
 **To use your own data:**
-1. Replace the CSV file with your data
-2. Ensure columns match: `post_id, platform, post_type, media_type, posted_date, posted_time, content, impressions, reach, likes, comments, shares, saves, engagement_rate`
+1. Replace CSV files with your data in the same format
+2. Ensure required columns: `post_id, platform, post_type, media_type, posted_date, posted_time, content, impressions, reach, likes, comments, shares, saves, engagement_rate`
+3. For sentiment analysis, provide comment data with: `comment_id, platform, comment_text, timestamp`
 
 ### Step 4: Start Services
 
@@ -216,60 +250,120 @@ You should see:
   ➜  Network: use --host to expose
 ```
 
-### Step 5: Test the System
+### Step 5: Initialize Sentiment Analysis (Optional)
+
+Run the sentiment engine to process initial comment data:
+
+```bash
+cd scripts
+python3 sentiment_engine.py
+```
+
+This will:
+- Load comments from `synthetic_comments_data.csv`
+- Analyze sentiment using AI transformers
+- Generate `enriched_comments_sentiment.csv`
+- Create `platform_sentiment_summary.json` with health scores
+
+### Step 6: Test the System
 
 1. Open http://localhost:5173 in your browser
-2. Try a sample query: "Most liked post on Instagram for November?"
-3. You should get a detailed response with specific metrics
+2. Navigate to "Command Center" and try a sample query: "Most liked post on Instagram for November?"
+3. Navigate to "Sentiment Health" to view real-time sentiment dashboard
+4. Test simulation scenarios (Normal, Crisis, Viral) to see live updates
 
 ---
 
 ## 🎮 Usage
 
-### Sample Queries
+### Two Main Features
 
-#### Performance Analysis
+#### 1️⃣ Command Center - AI Query Interface
+Ask natural language questions about your social media performance.
+
+**Sample Queries:**
+
+**Performance Analysis:**
 - "Most liked post on Instagram for the month of November?"
 - "Which platform performed better in Q4?"
 - "Show me engagement rate trends for December"
 - "Top 5 performing posts this month"
 
-#### Platform Comparison
+**Platform Comparison:**
 - "Compare Instagram vs LinkedIn performance this quarter"
 - "Which platform would you not recommend and why?"
 - "Platform-wise engagement rate comparison"
 - "Which platform has the best ROI?"
 
-#### Content Strategy
+**Content Strategy:**
 - "Which is the worst performing post type and on which platform?"
 - "What content themes work best on Instagram?"
 - "Best time to post on each platform?"
 - "Why did our engagement drop last week?"
 
-#### Recommendations
+**Recommendations:**
 - "Draft 5 post ideas for our product launch"
 - "Generate weekly performance summary for CMO"
 - "What should we do to improve Facebook performance?"
 - "Content strategy recommendations for next month"
 
-### API Usage
+#### 2️⃣ Sentiment Health Dashboard
+Monitor real-time sentiment across all platforms with visual insights.
 
-**Direct API Call:**
+**Features:**
+- **Health Score Gauges**: See sentiment health (0-100) for each platform
+- **Trend Chart**: Track sentiment changes over time
+- **Negative Alerts**: View recent negative comments requiring attention
+- **AI Reply Generator**: Get AI-powered response suggestions
+- **Simulation Testing**: Test different scenarios:
+  - **Normal**: Regular data flow simulation
+  - **Crisis**: Negative sentiment spike simulation
+  - **Viral**: High engagement spike simulation
+- **Auto-Refresh**: Dashboard updates every 2 minutes
+
+**How to Use:**
+1. Click "Sentiment Health" in the navigation
+2. View platform health scores (Green = Good, Yellow = Warning, Red = Crisis)
+3. Review negative alerts and generate AI responses
+4. Test scenarios using the simulation buttons
+5. Monitor trends over time in the chart
+
+### API Endpoints
+
+**Query API:**
 ```bash
 curl -X POST http://localhost:3001/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Most liked post on Instagram for November?"}'
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "query": "Most liked post on Instagram for November?",
-  "response": "The most liked post on Instagram in November 2025...",
-  "processingTime": "0.47",
-  "timestamp": "2025-12-18T10:30:00.000Z"
-}
+**Sentiment Summary:**
+```bash
+curl http://localhost:3001/api/sentiment/summary
+```
+
+**Sentiment History:**
+```bash
+curl http://localhost:3001/api/sentiment/history
+```
+
+**Negative Alerts:**
+```bash
+curl http://localhost:3001/api/sentiment/negative-alerts
+```
+
+**Generate AI Reply:**
+```bash
+curl -X POST http://localhost:3001/api/sentiment/generate-reply \
+  -H "Content-Type: application/json" \
+  -d '{"comment": "Terrible service!", "platform": "Instagram"}'
+```
+
+**Trigger Simulation:**
+```bash
+curl -X POST http://localhost:3001/api/simulate/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"scenario": "crisis"}'
 ```
 
 ---
@@ -379,39 +473,80 @@ PORT=3002
 ## 📁 Project Structure
 
 ```
-social-command-center/
-├── client/                          # React Frontend
+social-media-analytics-platform/
+├── client/                          # React Frontend (Port 5173)
 │   ├── src/
-│   │   ├── components/             # (Future: Modular components)
+│   │   ├── pages/
+│   │   │   ├── CommandCenter.jsx  # AI query interface
+│   │   │   └── SentimentHealth.jsx # Sentiment dashboard
+│   │   ├── components/
+│   │   │   ├── SentimentDashboard.jsx # Main sentiment UI
+│   │   │   ├── SentimentTrend.jsx     # Trend chart
+│   │   │   ├── SentimentSection.jsx   # Health gauges
+│   │   │   ├── ReplyModal.jsx         # AI reply generator
+│   │   │   ├── ClarificationDialog.jsx # Query clarification
+│   │   │   ├── DataVisualization.jsx   # Data rendering
+│   │   │   └── StructuredDataDisplay.jsx
+│   │   ├── hooks/
+│   │   │   └── useQueryHistory.js  # Query history management
 │   │   ├── api/
-│   │   │   └── client.js          # API communication
-│   │   ├── config.js              # ✏️ App configuration
-│   │   ├── App.jsx                # Main component
-│   │   ├── main.jsx               # Entry point
-│   │   └── index.css              # Tailwind styles
+│   │   │   └── client.js           # API communication
+│   │   ├── config.js               # ✏️ App configuration
+│   │   ├── App.jsx                 # Main app with routing
+│   │   ├── main.jsx                # Entry point
+│   │   └── index.css               # Tailwind styles
 │   ├── index.html
 │   ├── package.json
 │   ├── vite.config.js
 │   ├── tailwind.config.js
 │   └── postcss.config.js
 │
-├── server/                          # Node.js Backend
+├── server/                          # Node.js Backend (Port 3001)
 │   ├── routes/
-│   │   └── chat.js                # API endpoints
-│   ├── langchain/
-│   │   ├── chains.js              # ✏️ LangChain orchestration
-│   │   ├── vectorStore.js         # RAG implementation
-│   │   ├── chunking.js            # Hierarchical chunking
-│   │   ├── metadata.js            # 8-tier metadata system
-│   │   └── config.js              # ✏️ Domain configuration
-│   ├── data/
-│   │   └── campaign_performance.csv  # Sample data
-│   ├── index.js                   # Express server
+│   │   └── chat.js                 # POST /api/chat endpoint
+│   ├── langchain/                  # RAG & Vector Store
+│   │   ├── chains.js               # ✏️ LangChain orchestration
+│   │   ├── vectorStore.js          # RAG implementation
+│   │   ├── chunking.js             # Hierarchical chunking
+│   │   ├── metadata.js             # 8-tier metadata system
+│   │   └── config.js               # ✏️ Domain configuration
+│   ├── llm/                        # LLM Processing Pipeline
+│   │   ├── queryProcessor.js       # Main orchestrator
+│   │   ├── filterGenerator.js      # LLM-based filter creation
+│   │   ├── conversationManager.js  # Multi-turn conversations
+│   │   ├── clarificationEngine.js  # Query clarification
+│   │   ├── responseFramer.js       # Response formatting
+│   │   └── ...                     # Other LLM utilities
+│   ├── utils/                      # Utility modules
+│   │   ├── dataProcessor.js        # CSV loading & caching
+│   │   ├── cache.js                # Query result caching
+│   │   ├── queryLogger.js          # Query analytics
+│   │   ├── statistics.js           # Statistics utilities
+│   │   └── ...                     # Other utilities
+│   ├── data/                       # CSV Data Files
+│   │   ├── instagram_organic_posts.csv
+│   │   ├── facebook_organic_posts.csv
+│   │   ├── linkedin_organic_posts.csv
+│   │   ├── twitter_organic_posts.csv
+│   │   ├── instagram_ads_ad_campaigns.csv
+│   │   ├── facebook_ads_ad_campaigns.csv
+│   │   ├── google_ads_ad_campaigns.csv
+│   │   ├── synthetic_comments_data.csv
+│   │   ├── enriched_comments_sentiment.csv
+│   │   ├── sentiment_history.csv
+│   │   └── platform_sentiment_summary.json
+│   ├── logs/                       # Query logs & analytics
+│   ├── index.js                    # Express server with simulation endpoints
 │   ├── package.json
 │   └── .env.example
 │
+├── scripts/                         # Python Utilities
+│   ├── sentiment_engine.py         # AI sentiment analysis pipeline
+│   └── mock_streamer.py            # Data simulation (normal/crisis/viral)
+│
 ├── README.md                        # This file
 ├── CUSTOMIZATION_GUIDE.md          # Detailed customization
+├── DEPLOYMENT_GUIDE.md             # Production deployment
 └── .gitignore
 ```
 
@@ -477,14 +612,24 @@ MIT License - Feel free to use for your project!
 
 ---
 
-## 🎉 Ready to Demo!
+## 🎉 Ready to Use!
 
-Your AI-powered social media intelligence system is ready! Start asking questions and get instant, data-driven insights. 
+Your AI-powered social media analytics platform with real-time sentiment monitoring is ready!
 
 **Pro Tips:**
-- Start with sample queries to understand capabilities
+- **Command Center**: Start with sample queries to understand AI capabilities
+- **Sentiment Dashboard**: Monitor platform health scores and test simulation scenarios
 - Try complex comparisons across platforms and time periods
-- Ask for specific recommendations and content ideas
-- Experiment with different query phrasings
+- Use AI reply generator for negative comments
+- Watch sentiment trends to identify potential issues early
+- Experiment with different query phrasings and multi-turn conversations
 
-Good luck with your class project! 🚀📊
+**Key Features to Showcase:**
+1. Natural language queries with intelligent responses
+2. Real-time sentiment health monitoring across 4 platforms
+3. AI-powered reply generation for crisis management
+4. Simulation scenarios for stress testing
+5. Historical trend tracking and visualization
+6. Multi-platform performance analytics
+
+Transform your social media management with AI-powered insights! 🚀📊

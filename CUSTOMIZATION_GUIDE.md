@@ -1,6 +1,6 @@
 # 🎨 Customization Guide
 
-This guide shows you exactly how to customize your Social Media Command Center for your specific needs.
+This guide shows you exactly how to customize your Social Media Analytics Platform (including both the Command Center and Sentiment Dashboard) for your specific needs.
 
 ---
 
@@ -16,6 +16,9 @@ This guide shows you exactly how to customize your Social Media Command Center f
 | Response Format | `/server/langchain/config.js` | ⭐⭐ Medium |
 | RAG Retrieval | `/server/langchain/config.js` | ⭐⭐⭐ Advanced |
 | Metadata System | `/server/langchain/metadata.js` | ⭐⭐⭐ Advanced |
+| Sentiment Thresholds | `/scripts/sentiment_engine.py` | ⭐⭐ Medium |
+| Simulation Scenarios | `/scripts/mock_streamer.py` | ⭐⭐ Medium |
+| Auto-Refresh Interval | `/client/src/components/SentimentDashboard.jsx` | ⭐ Easy |
 
 ---
 
@@ -580,6 +583,389 @@ Before demoing your project:
 - [ ] Modified welcome message
 - [ ] Tested all customizations
 - [ ] Documented changes made
+
+---
+
+## 1️⃣1️⃣ Customize Sentiment Health Thresholds
+
+### File: `/scripts/sentiment_engine.py`
+
+**Find the health score calculation section:**
+```python
+def calculate_health_score(positive, negative, neutral):
+    total = positive + negative + neutral
+    if total == 0:
+        return 50.0
+
+    # Health score = (positive - negative) / total * 100
+    score = ((positive - negative) / total) * 100
+    return max(0, min(100, score))
+```
+
+**Customize thresholds:**
+
+**Give more weight to positives:**
+```python
+def calculate_health_score(positive, negative, neutral):
+    total = positive + negative + neutral
+    if total == 0:
+        return 50.0
+
+    # Weight positives more heavily
+    weighted_score = ((positive * 1.5 - negative) / total) * 100
+    return max(0, min(100, weighted_score))
+```
+
+**Penalize negatives more harshly:**
+```python
+def calculate_health_score(positive, negative, neutral):
+    total = positive + negative + neutral
+    if total == 0:
+        return 50.0
+
+    # Negatives count double
+    score = ((positive - negative * 2) / total) * 100
+    return max(0, min(100, score))
+```
+
+**Change gauge color thresholds:**
+
+Edit `/client/src/components/SentimentSection.jsx`:
+
+```javascript
+// Find the color mapping function
+const getScoreColor = (score) => {
+  if (score >= 70) return '#10b981';  // Green - Good
+  if (score >= 50) return '#f59e0b';  // Yellow - Warning
+  return '#ef4444';                   // Red - Crisis
+};
+```
+
+**Make it more sensitive:**
+```javascript
+const getScoreColor = (score) => {
+  if (score >= 80) return '#10b981';  // Green - Excellent
+  if (score >= 60) return '#f59e0b';  // Yellow - Needs attention
+  return '#ef4444';                   // Red - Critical
+};
+```
+
+---
+
+## 1️⃣2️⃣ Customize Simulation Scenarios
+
+### File: `/scripts/mock_streamer.py`
+
+**Find scenario definitions:**
+```python
+SCENARIO_CONFIGS = {
+    "normal": {
+        "positive_ratio": 0.7,
+        "negative_ratio": 0.1,
+        "neutral_ratio": 0.2,
+        "comment_count": 50
+    },
+    "crisis": {
+        "positive_ratio": 0.2,
+        "negative_ratio": 0.6,
+        "neutral_ratio": 0.2,
+        "comment_count": 100
+    },
+    "viral": {
+        "positive_ratio": 0.8,
+        "negative_ratio": 0.05,
+        "neutral_ratio": 0.15,
+        "comment_count": 200
+    }
+}
+```
+
+**Add custom scenario:**
+```python
+SCENARIO_CONFIGS = {
+    # ... existing scenarios ...
+    "mixed": {
+        "positive_ratio": 0.5,
+        "negative_ratio": 0.3,
+        "neutral_ratio": 0.2,
+        "comment_count": 75
+    },
+    "controversy": {
+        "positive_ratio": 0.4,
+        "negative_ratio": 0.5,
+        "neutral_ratio": 0.1,
+        "comment_count": 150
+    }
+}
+```
+
+**Add UI button in `/client/src/components/SentimentDashboard.jsx`:**
+
+Find the simulation buttons section and add:
+```javascript
+<button
+  onClick={() => triggerSimulation('mixed')}
+  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+>
+  Mixed Response
+</button>
+```
+
+---
+
+## 1️⃣3️⃣ Adjust Auto-Refresh Interval
+
+### File: `/client/src/components/SentimentDashboard.jsx`
+
+**Find the polling interval:**
+```javascript
+useEffect(() => {
+  const interval = setInterval(() => {
+    fetchSentimentData();
+  }, 120000); // 2 minutes = 120000ms
+
+  return () => clearInterval(interval);
+}, []);
+```
+
+**Change refresh rate:**
+
+**More frequent (30 seconds):**
+```javascript
+const interval = setInterval(() => {
+  fetchSentimentData();
+}, 30000); // 30 seconds
+```
+
+**Less frequent (5 minutes):**
+```javascript
+const interval = setInterval(() => {
+  fetchSentimentData();
+}, 300000); // 5 minutes
+```
+
+**Disable auto-refresh:**
+```javascript
+// Comment out or remove the entire useEffect interval
+// Users will need to manually refresh
+```
+
+---
+
+## 1️⃣4️⃣ Customize AI Reply Generation
+
+### File: `/server/index.js`
+
+**Find the reply generation endpoint:**
+```javascript
+app.post('/api/sentiment/generate-reply', async (req, res) => {
+  const { comment, platform } = req.body;
+
+  const prompt = `Generate a professional, empathetic response to this ${platform} comment: "${comment}"`;
+  // ... OpenAI call
+});
+```
+
+**Customize reply tone:**
+
+**More casual/friendly:**
+```javascript
+const prompt = `Generate a friendly, warm response to this ${platform} comment.
+Be conversational and show genuine care: "${comment}"
+
+Style: Casual, friendly, use emojis if appropriate`;
+```
+
+**More corporate:**
+```javascript
+const prompt = `Generate a professional corporate response to this ${platform} comment.
+Maintain brand professionalism and offer solutions: "${comment}"
+
+Style: Professional, solution-focused, acknowledge concern`;
+```
+
+**Platform-specific responses:**
+```javascript
+const toneGuide = {
+  Instagram: "casual, friendly, use emojis",
+  LinkedIn: "professional, business-focused",
+  Facebook: "warm, community-oriented",
+  Twitter: "concise, direct, under 280 characters"
+};
+
+const prompt = `Generate a ${toneGuide[platform]} response to: "${comment}"`;
+```
+
+---
+
+## 1️⃣5️⃣ Customize Negative Alert Criteria
+
+### File: `/scripts/sentiment_engine.py`
+
+**Find the negative alert section:**
+```python
+# Filter for negative comments
+negative_alerts = df[df['sentiment_label'] == 'Negative'].head(10)
+```
+
+**Customize criteria:**
+
+**Only show very negative (high confidence):**
+```python
+# Assuming you have a confidence score
+negative_alerts = df[
+    (df['sentiment_label'] == 'Negative') &
+    (df['confidence'] > 0.8)
+].head(10)
+```
+
+**Show more alerts:**
+```python
+negative_alerts = df[df['sentiment_label'] == 'Negative'].head(25)
+```
+
+**Filter by keywords:**
+```python
+priority_keywords = ['terrible', 'worst', 'scam', 'fraud', 'refund']
+
+def is_priority_negative(text):
+    return any(keyword in text.lower() for keyword in priority_keywords)
+
+df['is_priority'] = df['comment_text'].apply(is_priority_negative)
+negative_alerts = df[
+    (df['sentiment_label'] == 'Negative') &
+    (df['is_priority'] == True)
+].head(15)
+```
+
+---
+
+## 1️⃣6️⃣ Change Sentiment Model
+
+### File: `/scripts/sentiment_engine.py`
+
+**Current model:**
+```python
+model_name = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+```
+
+**Use different model:**
+
+**Better multilingual support:**
+```python
+model_name = "nlptown/bert-base-multilingual-uncased-sentiment"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+```
+
+**Faster but less accurate:**
+```python
+model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+```
+
+---
+
+## 1️⃣7️⃣ Customize Trend Chart Display
+
+### File: `/client/src/components/SentimentTrend.jsx`
+
+**Find the chart configuration:**
+```javascript
+<LineChart data={data}>
+  <XAxis dataKey="timestamp" />
+  <YAxis domain={[0, 100]} />
+  <Line type="monotone" dataKey="Instagram" stroke="#E1306C" />
+  // ... other platforms
+</LineChart>
+```
+
+**Show more data points:**
+```javascript
+// In parent component SentimentDashboard.jsx
+const chartData = historyData.slice(-30); // Show last 30 instead of 15
+```
+
+**Change Y-axis range (focus on variation):**
+```javascript
+<YAxis domain={[40, 100]} /> // Only show 40-100 range
+```
+
+**Add smoothing to lines:**
+```javascript
+<Line type="monotone" dataKey="Instagram" stroke="#E1306C" strokeWidth={2} dot={false} />
+```
+
+---
+
+## 1️⃣8️⃣ Customize Hourly Cron Job
+
+### File: `/server/index.js`
+
+**Find the cron schedule:**
+```javascript
+cron.schedule('0 * * * *', () => {
+  runSimulationScenario("normal");
+});
+```
+
+**Change frequency:**
+
+**Every 30 minutes:**
+```javascript
+cron.schedule('*/30 * * * *', () => {
+  runSimulationScenario("normal");
+});
+```
+
+**Every 6 hours:**
+```javascript
+cron.schedule('0 */6 * * *', () => {
+  runSimulationScenario("normal");
+});
+```
+
+**Daily at 9 AM:**
+```javascript
+cron.schedule('0 9 * * *', () => {
+  runSimulationScenario("normal");
+});
+```
+
+**Disable automatic simulation:**
+```javascript
+// Comment out the entire cron.schedule block
+// Run simulations manually via API only
+```
+
+---
+
+## 📊 Testing Your Sentiment Customizations
+
+After making changes:
+
+1. **Restart Python scripts:**
+```bash
+cd scripts
+python3 sentiment_engine.py
+```
+
+2. **Restart the server:**
+```bash
+cd server
+npm start
+```
+
+3. **Test simulation scenarios** from the UI
+
+4. **Check sentiment calculations** in generated files:
+   - `enriched_comments_sentiment.csv`
+   - `platform_sentiment_summary.json`
+
+5. **Verify UI updates** on the Sentiment Health page
 
 ---
 

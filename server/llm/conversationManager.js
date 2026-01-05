@@ -132,6 +132,41 @@ class ConversationManager {
       };
     }
 
+    // Simple sentiment queries - DON'T decompose these
+    if (this.isSimpleSentimentQuery(lowerQuery)) {
+      console.log('🔧 PATCH: Detected simple sentiment query - using single step');
+      return {
+        isMultiStep: false,
+        needsContext: false,
+        steps: [{
+          stepNumber: 1,
+          query: userQuery,
+          description: 'Process sentiment query',
+          dependsOn: null
+        }],
+        contextReference: null,
+        reasoning: 'Simple sentiment query handled as single step to avoid decomposition issues'
+      };
+    }
+
+    // Categorical ranking queries - DON'T decompose these
+    // Examples: "Which ad format has the lowest cost?", "What platform has the best engagement?"
+    if (this.isCategoricalRankingQuery(lowerQuery)) {
+      console.log('🔧 PATCH: Detected categorical ranking query - using single step with groupBy');
+      return {
+        isMultiStep: false,
+        needsContext: false,
+        steps: [{
+          stepNumber: 1,
+          query: userQuery,
+          description: 'Process categorical ranking query',
+          dependsOn: null
+        }],
+        contextReference: null,
+        reasoning: 'Categorical ranking query should use groupBy + aggregate, not multi-step decomposition'
+      };
+    }
+
     // Out-of-scope queries (like "Where is New Delhi?")
     const outOfScopeKeywords = ['weather', 'capital', 'location', 'where is', 'what is the capital'];
     const isOutOfScope = outOfScopeKeywords.some(keyword => lowerQuery.includes(keyword));
@@ -275,13 +310,28 @@ Examples of BAD queries to AVOID:
   /**
    * ═══════════════════════════════════════════════════════════════════════════
    * PATCH 4: Detect simple comparison queries
+   * IMPROVED: Expanded patterns to match more comparison variations
    * ═══════════════════════════════════════════════════════════════════════════
    */
   isSimpleComparisonQuery(lowerQuery) {
-    // Pattern 1: "X vs Y" or "compare X and Y"
-    const hasVsPattern = lowerQuery.includes(' vs ') ||
-      lowerQuery.includes(' versus ') ||
-      (lowerQuery.includes('compare') && lowerQuery.includes(' and '));
+    // Pattern 1: Expanded comparison keywords
+    const comparisonPatterns = [
+      ' vs ',
+      ' vs. ',
+      ' versus ',
+      'compared to',
+      'compared with',
+      'compare ',
+      'comparison',
+      'performing compared',
+      'performance compared',
+      ' than ', // "better than", "higher than"
+      'against'
+    ];
+
+    const hasComparisonKeyword = comparisonPatterns.some(pattern =>
+      lowerQuery.includes(pattern)
+    );
 
     // Pattern 2: Simple comparison (no complex analysis required)
     const isSimple = !lowerQuery.includes('trend') &&
@@ -291,13 +341,123 @@ Examples of BAD queries to AVOID:
       !lowerQuery.includes('predict') &&
       !lowerQuery.includes('forecast');
 
-    // Pattern 3: Direct comparison keywords
-    const hasComparisonKeywords = lowerQuery.includes('organic vs') ||
-      lowerQuery.includes('ads vs') ||
-      lowerQuery.includes('paid vs') ||
-      lowerQuery.includes('performance comparison');
+    // Pattern 3: Has platform/content context (broader than before)
+    const hasComparisonContext =
+      lowerQuery.includes('organic') ||
+      lowerQuery.includes('ads') ||
+      lowerQuery.includes('paid') ||
+      lowerQuery.includes('platform') ||
+      lowerQuery.includes('facebook') ||
+      lowerQuery.includes('instagram') ||
+      lowerQuery.includes('twitter') ||
+      lowerQuery.includes('linkedin') ||
+      lowerQuery.includes('google') ||
+      lowerQuery.includes('video') ||
+      lowerQuery.includes('image') ||
+      lowerQuery.includes('carousel') ||
+      lowerQuery.includes('performing') ||
+      lowerQuery.includes('performance');
 
-    return hasVsPattern && isSimple && hasComparisonKeywords;
+    return hasComparisonKeyword && isSimple && hasComparisonContext;
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PATCH 7: Detect categorical ranking queries
+   * These queries ask "which [category] has the [best/worst/highest/lowest] [metric]"
+   * They should be processed with groupBy + aggregate, not decomposed into steps
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  isCategoricalRankingQuery(lowerQuery) {
+    // Pattern 1: "Which [category]" questions
+    const hasWhichCategory = lowerQuery.includes('which ') && (
+      lowerQuery.includes('platform') ||
+      lowerQuery.includes('ad format') ||
+      lowerQuery.includes('format') ||
+      lowerQuery.includes('campaign') ||
+      lowerQuery.includes('post type') ||
+      lowerQuery.includes('content type') ||
+      lowerQuery.includes('channel')
+    );
+
+    // Pattern 2: Ranking keywords
+    const hasRankingKeyword =
+      lowerQuery.includes('best') ||
+      lowerQuery.includes('worst') ||
+      lowerQuery.includes('highest') ||
+      lowerQuery.includes('lowest') ||
+      lowerQuery.includes('most') ||
+      lowerQuery.includes('least') ||
+      lowerQuery.includes('top ') ||
+      lowerQuery.includes('bottom');
+
+    // Pattern 3: "across" keyword indicating aggregation
+    const hasAcrossKeyword =
+      lowerQuery.includes('across all') ||
+      lowerQuery.includes('across platforms') ||
+      lowerQuery.includes('across channels');
+
+    // Pattern 4: Not a complex multi-step query
+    const isMultiStepIndicator =
+      lowerQuery.includes('and then') ||
+      lowerQuery.includes('after that') ||
+      lowerQuery.includes('followed by') ||
+      (lowerQuery.includes('calculate') && lowerQuery.includes('average')) ||
+      lowerQuery.split('?').length > 2;  // Multiple questions
+
+    const isNotComplexQuery =
+      !isMultiStepIndicator &&
+      !lowerQuery.includes('trend over time') &&
+      !lowerQuery.includes('month-over-month') &&
+      !lowerQuery.includes('year-over-year');
+
+    // This is a categorical ranking query if:
+    // (It asks "which category" OR has "across all") AND has ranking keywords AND is not complex
+    return (hasWhichCategory || hasAcrossKeyword) && hasRankingKeyword && isNotComplexQuery;
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   * PATCH 6: Detect simple sentiment queries
+   * ═══════════════════════════════════════════════════════════════════════════
+   */
+  isSimpleSentimentQuery(lowerQuery) {
+    // Pattern 1: Basic sentiment keywords
+    const hasSentimentKeywords = lowerQuery.includes('sentiment') ||
+      lowerQuery.includes('feedback') ||
+      lowerQuery.includes('comment') ||
+      lowerQuery.includes('negative') ||
+      lowerQuery.includes('positive') ||
+      lowerQuery.includes('neutral');
+
+    // Pattern 2: Sentiment score prioritization queries
+    const isSentimentScoreQuery = lowerQuery.includes('sentiment score') ||
+                                  lowerQuery.includes('sentiment scores') ||
+                                  (lowerQuery.includes('based on') && lowerQuery.includes('sentiment'));
+
+    // Pattern 3: Reply prioritization based on sentiment
+    const isReplyPrioritization = (lowerQuery.includes('reply') || lowerQuery.includes('respond')) &&
+                                   hasSentimentKeywords;
+
+    // Pattern 4: Simple request patterns (not complex multi-step)
+    const isSimpleRequest = (lowerQuery.includes('show') ||
+                            lowerQuery.includes('get') ||
+                            lowerQuery.includes('give') ||
+                            lowerQuery.includes('which') ||
+                            lowerQuery.includes('what')) &&
+                           !lowerQuery.includes('and then') &&
+                           !lowerQuery.includes('after that') &&
+                           !lowerQuery.includes('calculate') &&
+                           !lowerQuery.includes('analyze correlation') &&
+                           !lowerQuery.includes('trend over time');
+
+    // This is a simple sentiment query if:
+    // 1. It has sentiment keywords AND is a simple request, OR
+    // 2. It's asking about sentiment scores specifically, OR
+    // 3. It's asking about reply prioritization based on sentiment
+    return (hasSentimentKeywords && isSimpleRequest) ||
+           isSentimentScoreQuery ||
+           isReplyPrioritization;
   }
 
   /**

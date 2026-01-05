@@ -70,6 +70,43 @@ class FilterGenerator {
 
     const fixes = [];
 
+    // FIX 0: Auto-filter to ad platforms when query mentions ad-specific metrics or "paid channels"
+    const lowerQuery = userQuery.toLowerCase();
+    const adSpecificMetrics = ['cost per conversion', 'cost_per_conversion', 'cpc', 'cost per click', 'roas', 'return on ad spend', 'ad spend', 'ctr', 'click-through'];
+    const paidChannelKeywords = ['paid channel', 'paid platform', 'ad campaign', 'advertising', 'ads performance'];
+    const hasAdMetric = adSpecificMetrics.some(metric => lowerQuery.includes(metric));
+    const hasPaidKeyword = paidChannelKeywords.some(keyword => lowerQuery.includes(keyword));
+
+    // Check if already filtering by platform
+    const hasExplicitPlatformFilter = filterSpec.filters && filterSpec.filters.some(f => {
+      if (f.column === 'platform') return true;
+      if (f.type === 'or' || f.type === 'and') {
+        return f.conditions && f.conditions.some(c => c.column === 'platform');
+      }
+      return false;
+    });
+
+    // If asking about ad metrics or paid channels but no platform filter exists, add one
+    if ((hasAdMetric || hasPaidKeyword) && !hasExplicitPlatformFilter) {
+      // Initialize filters array if needed
+      if (!filterSpec.filters) {
+        filterSpec.filters = [];
+      }
+
+      // Add filter for ad platforms (platforms ending with "Ads")
+      filterSpec.filters.push({
+        type: 'or',
+        conditions: [
+          { column: 'platform', operator: 'equals', value: 'Facebook Ads' },
+          { column: 'platform', operator: 'equals', value: 'Instagram Ads' },
+          { column: 'platform', operator: 'equals', value: 'Google Ads' }
+        ]
+      });
+
+      fixes.push('Added automatic filter for ad platforms (Facebook Ads, Instagram Ads, Google Ads) due to ad-specific metrics in query');
+      console.log('🔧 AUTO-FIX: Query mentions ad-specific metrics/paid channels - restricting to ad platforms only');
+    }
+
     // FIX 1: Remove empty sortBy objects (causes validation errors)
     if (filterSpec.sortBy && typeof filterSpec.sortBy === 'object') {
       if (Object.keys(filterSpec.sortBy).length === 0 || !filterSpec.sortBy.column) {
@@ -236,29 +273,36 @@ class FilterGenerator {
       );
 
       if ((mentionsQ3 || mentionsQ4 || mentionsQ2 || mentionsQ1) && !hasDateFilters) {
+        // Extract year from query or use default
+        const yearMatch = userQuery.match(/\b(202[0-9]|203[0-9])\b/);
+        const targetYear = yearMatch ? yearMatch[1] : '2025'; // Default to 2025 for existing data
+
         // Determine which quarter
         let months = [];
         let quarterName = '';
 
         if (mentionsQ3) {
-          months = ["07-2025", "08-2025", "09-2025"];
+          months = [`${targetYear}-07`, `${targetYear}-08`, `${targetYear}-09`];
           quarterName = 'Q3';
         } else if (mentionsQ4) {
-          months = ["10-2025", "11-2025", "12-2025"];
+          months = [`${targetYear}-10`, `${targetYear}-11`, `${targetYear}-12`];
           quarterName = 'Q4';
         } else if (mentionsQ2) {
-          months = ["04-2025", "05-2025", "06-2025"];
+          months = [`${targetYear}-04`, `${targetYear}-05`, `${targetYear}-06`];
           quarterName = 'Q2';
         } else if (mentionsQ1) {
-          months = ["01-2025", "02-2025", "03-2025"];
+          months = [`${targetYear}-01`, `${targetYear}-02`, `${targetYear}-03`];
           quarterName = 'Q1';
         }
 
         // Create OR filter with month conditions
+        // Use start_date for ad campaigns, posted_date for organic posts
+        const dateColumn = lowerQuery.includes('ad') || lowerQuery.includes('campaign') || lowerQuery.includes('roas') ? 'start_date' : 'posted_date';
+
         const quarterFilter = {
           type: "or",
           conditions: months.map(month => ({
-            column: "posted_date",
+            column: dateColumn,
             operator: "contains",
             value: month
           }))
@@ -272,8 +316,8 @@ class FilterGenerator {
         // Add the quarter filter
         filterSpec.filters.push(quarterFilter);
 
-        fixes.push(`Added missing ${quarterName} date filters (${months.join(', ')}) based on interpretation`);
-        console.log(`🔧 AUTO-FIX: Injected ${quarterName} date filters - LLM mentioned ${quarterName} but didn't generate filters`);
+        fixes.push(`Added missing ${quarterName} ${targetYear} date filters (${months.join(', ')}) based on interpretation`);
+        console.log(`🔧 AUTO-FIX: Injected ${quarterName} ${targetYear} date filters - LLM mentioned ${quarterName} but didn't generate filters`);
       }
     }
 
@@ -297,6 +341,9 @@ class FilterGenerator {
   validateQueryScope(userQuery, metadata, isComparisonQuery = false) {
     const query = userQuery.toLowerCase();
     const availablePlatforms = (metadata.uniqueValues && metadata.uniqueValues.platform) || [];
+
+    // Check if this is a sentiment/feedback/comment query
+    const isSentimentQuery = /sentiment|feedback|comment|complain|negative|positive|neutral|rating/i.test(query);
 
     // Check for non-existent platforms
     const unavailablePlatforms = {
@@ -372,15 +419,95 @@ class FilterGenerator {
       }
     }
 
+    // CRITICAL FIX: Check for engagement_rate on ad campaigns (inverse check of above)
+    // Ad campaigns don't have engagement_rate, likes, comments, shares, saves
+    const organicOnlyMetrics = {
+      'engagement rate': 'engagement rate',
+      'engagement_rate': 'engagement rate',
+      'likes': 'likes',
+      'comments': 'comments (on posts)',
+      'shares': 'shares',
+      'saves': 'saves'
+    };
+
+    const isAskingAboutAdCampaigns = (query.includes('ad') || query.includes('campaign') ||
+                                       query.includes('paid') || query.includes('roas') ||
+                                       query.includes('cpc') || query.includes('ctr')) &&
+                                      !query.includes('organic');
+
+    // Special case: comparing organic to paid (mentions both)
+    const isComparingOrganicVsPaid = (query.includes('organic') || query.includes('post')) &&
+                                      (query.includes('ad') || query.includes('campaign') || query.includes('paid'));
+
+    if (isAskingAboutAdCampaigns || isComparingOrganicVsPaid) {
+      for (const [keyword, displayName] of Object.entries(organicOnlyMetrics)) {
+        if (query.includes(keyword)) {
+          return {
+            valid: false,
+            needsClarification: true,
+            reason: `${displayName} is not available for ad campaigns.`,
+            explanation: `Ad campaigns and organic posts track different engagement metrics:\n\n` +
+                        `**Organic Posts Track:**\n` +
+                        `- engagement_rate: (likes + comments + shares) / reach\n` +
+                        `- Individual counts: likes, comments, shares, saves\n` +
+                        `- Reach and impressions\n\n` +
+                        `**Ad Campaigns Track:**\n` +
+                        `- CTR (click-through rate): clicks / impressions\n` +
+                        `- conversion_rate: conversions / clicks\n` +
+                        `- ROAS: revenue / ad spend\n` +
+                        `- CPC, cost_per_conversion, clicks, conversions\n` +
+                        `- Impressions (but NO likes, comments, shares, or engagement_rate)\n\n` +
+                        `Why the difference? Ad platforms focus on conversion funnel metrics (clicks → conversions → revenue) ` +
+                        `while organic posts focus on social engagement (likes, comments, shares).`,
+            alternatives: [
+              {
+                option: 'Compare organic engagement_rate to ad CTR',
+                description: 'Both measure interaction effectiveness (engagement vs clicks)'
+              },
+              {
+                option: 'Compare organic engagement_rate to ad conversion_rate',
+                description: 'Both measure success percentage'
+              },
+              {
+                option: 'Compare reach and impressions',
+                description: 'Available for both organic posts and ad campaigns'
+              },
+              {
+                option: 'View organic and ad performance separately',
+                description: 'Analyze each with their appropriate metrics'
+              }
+            ],
+            suggestedQueries: [
+              'Compare organic engagement rate to ad CTR on Instagram',
+              'Show me Instagram ad campaigns with highest CTR',
+              'What is the average ROAS for Instagram Ads vs Facebook Ads?',
+              'Compare organic reach vs ad reach on Instagram',
+              'Show me top organic posts by engagement rate',
+              'Show me top ad campaigns by ROAS'
+            ],
+            whatYouCanCompare: {
+              bothHave: ['impressions', 'reach (for some platforms)', 'platform', 'date'],
+              organicHas: ['engagement_rate', 'likes', 'comments', 'shares', 'saves', 'posted_time'],
+              adsHave: ['CTR', 'CPC', 'conversion_rate', 'ROAS', 'clicks', 'conversions', 'revenue', 'cost_per_conversion']
+            }
+          };
+        }
+      }
+    }
+
     // Check if query is completely off-topic
     const socialMediaKeywords = [
-      'post', 'campaign', 'ad', 'engagement', 'like', 'share', 'reach', 'impression',
+      'post', 'campaign', 'ad', 'engagement', 'likes', 'shares', 'reach', 'impression',
       'platform', 'facebook', 'instagram', 'twitter', 'linkedin', 'google',
-      'content', 'performance', 'roas', 'conversion', 'ctr', 'click',
+      'content', 'performance', 'roas', 'conversion', 'ctr', 'clicks',
       'follower', 'audience', 'organic', 'paid', 'media', 'social'
     ];
 
-    const hasRelevantKeyword = socialMediaKeywords.some(kw => query.includes(kw));
+    // Use word boundary matching to avoid false positives (e.g., "like" matching "likes")
+    const hasRelevantKeyword = socialMediaKeywords.some(kw => {
+      const regex = new RegExp(`\\b${kw}`, 'i');
+      return regex.test(query);
+    });
 
     if (!hasRelevantKeyword && query.length > 10) {
       return {
@@ -395,19 +522,28 @@ class FilterGenerator {
     // V4.2 ADDITION: Check for queries requiring derived fields
 
     // Check for day-of-week / weekday/weekend queries
-    const weekdayPatterns = /weekday|weekend|week day|day of (the )?week|monday|tuesday|wednesday|thursday|friday|saturday|sunday/i;
-    if (weekdayPatterns.test(query)) {
+    // Skip this validation for sentiment queries and comparison queries
+    // IMPROVED: Detect weekday/weekend queries including "during week or weekends"
+    const weekdayPatterns = /(weekday|weekend|week day)\s+(vs|versus|compared|comparison)|during\s+(the\s+)?(week|weekday|weekend)|(weekday|weekend)\s+or\s+(weekday|weekend)/i;
+    const specificDayQuery = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i;
+
+    if (!isSentimentQuery && !isComparisonQuery && weekdayPatterns.test(query)) {
       const availableColumns = (metadata.columns && Object.keys(metadata.columns)) || [];
       const hasDayOfWeek = availableColumns.some(col =>
         col.toLowerCase().includes('day') && col.toLowerCase().includes('week')
       );
 
-      if (!hasDayOfWeek && !query.includes('posted_date')) {
+      const hasPostedDate = availableColumns.some(col =>
+        col.toLowerCase() === 'posted_date'
+      );
+
+      // Only block if query explicitly asks for weekday/weekend comparison AND we have no day-of-week column
+      if (!hasDayOfWeek && hasPostedDate) {
         return {
           valid: false,
           needsClarification: true,
           reason: 'Weekday vs weekend analysis requires grouping by day of week.',
-          explanation: 'The data has posted_date but not day-of-week categorization. I cannot automatically determine if a date is a weekday or weekend.',
+          explanation: 'The data has posted_date but not day-of-week categorization. I cannot automatically determine if a date is a weekday or weekend. I can show you posts grouped by date for manual analysis.',
           alternatives: [
             {
               option: 'Show me engagement grouped by individual date',
@@ -427,20 +563,32 @@ class FilterGenerator {
     }
 
     // Check for time-of-day queries
-    // PATCH: Skip this validation for comparison queries
-    const timeOfDayPatterns = /time of day|morning|afternoon|evening|night|hour|am|pm|peak time|best time to post/i;
-    if (!isComparisonQuery && timeOfDayPatterns.test(query) && !query.includes('posted_time')) {
+    // IMPROVED: Detect time-of-day questions regardless of comparison classification
+    const timeOfDayPatterns = /time of day|morning|afternoon|evening|night|(best|peak|optimal)\s+time\s+(to\s+post|for\s+posting)/i;
+    const timeGroupingKeywords = /group(ed)?\s+by\s+(time|hour)|time\s+slot|hour\s+of\s+day|breakdown\s+by\s+(time|hour)/i;
+
+    // CRITICAL: Check for time patterns BEFORE checking isComparisonQuery
+    // "best time to post" should trigger this even if misclassified as comparison
+    if (!isSentimentQuery &&
+      (timeOfDayPatterns.test(query) || timeGroupingKeywords.test(query)) &&
+      !query.includes('posted_time')) {
+
       const availableColumns = (metadata.columns && Object.keys(metadata.columns)) || [];
       const hasTimeCategory = availableColumns.some(col =>
         col.toLowerCase().includes('time') && (col.toLowerCase().includes('category') || col.toLowerCase().includes('period'))
       );
 
-      if (!hasTimeCategory) {
+      const hasPostedTime = availableColumns.some(col =>
+        col.toLowerCase() === 'posted_time'
+      );
+
+      // Only block if query asks for time grouping AND we have no time categorization
+      if (!hasTimeCategory && hasPostedTime) {
         return {
           valid: false,
           needsClarification: true,
           reason: 'Time-of-day analysis requires grouping by time periods.',
-          explanation: 'The data has posted_time (HH:MM:SS) but not time-of-day categorization (morning/afternoon/evening).',
+          explanation: 'The data has posted_time (HH:MM:SS) but not time-of-day categorization (morning/afternoon/evening). I can show you posts with timestamps for manual analysis.',
           alternatives: [
             {
               option: 'Show me posts with their posted_time and engagement rate',
@@ -460,8 +608,18 @@ class FilterGenerator {
     }
 
     // Check for "weekly" or "last week" without specific dates
-    const weeklyPatterns = /weekly|last week|this week|past week/i;
-    if (weeklyPatterns.test(query) && !query.includes('2025') && !query.includes('december') && !query.includes('date')) {
+    // IMPROVED: Only validate if asking for SPECIFIC week without context
+    const weeklyPatterns = /\b(which|what)\s+week|last\s+week|this\s+week/i;
+    const hasWeeklyContext = query.includes('summary') || query.includes('report') || query.includes('performance');
+    const hasYearReference = /\b(202[0-9]|203[0-9])\b/.test(query);
+    const hasMonthReference = /january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(query);
+
+    // Don't block "weekly summary" or "weekly report" - LLM can handle these
+    if (weeklyPatterns.test(query) &&
+      !hasWeeklyContext &&
+      !hasYearReference &&
+      !hasMonthReference &&
+      !query.includes('date')) {
       return {
         valid: false,
         needsClarification: true,
@@ -469,12 +627,12 @@ class FilterGenerator {
         explanation: '"Weekly" is ambiguous - it could mean last 7 days, current calendar week, or a specific week.',
         alternatives: [
           {
-            option: 'Show me data from December 23-29, 2025',
-            description: 'Last complete week'
-          },
-          {
             option: 'Show me data from the last 7 days',
             description: 'Rolling 7-day window'
+          },
+          {
+            option: 'Show me weekly breakdown for November 2025',
+            description: 'Week-by-week analysis for a specific month'
           },
           {
             option: 'Show me overall performance summary',
@@ -517,19 +675,269 @@ class FilterGenerator {
 
 
 
+    // V4.3 ADDITION: Check for text analysis queries (hashtag/keyword/theme extraction)
+    const hashtagKeywordPattern = /\b(hashtag(s)?|keyword(s)?|theme(s)?)\b/i;
+    if (hashtagKeywordPattern.test(query)) {
+      const hasHashtagColumn = metadata.columns && metadata.columns.hashtags;
+      const hasContentColumn = metadata.columns && metadata.columns.content;
+
+      if (!hasHashtagColumn && hasContentColumn) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: 'Hashtag/keyword/theme analysis requires text extraction from content.',
+          explanation: 'The dataset has a content column with hashtags embedded in post text, but no separate hashtags column. I cannot automatically extract and analyze hashtags or themes from text content.',
+          alternatives: [
+            {
+              option: 'Show me top posts by engagement with their content',
+              description: 'You can manually review which hashtags/themes appear in high-performing posts'
+            },
+            {
+              option: 'Show me posts sorted by saves and shares',
+              description: 'See high-performing content (hashtags visible in content field)'
+            },
+            {
+              option: 'Show me posts grouped by platform with engagement metrics',
+              description: 'Compare platform performance to identify where hashtags work best'
+            }
+          ],
+          suggestedQueries: [
+            'Show me top 20 posts by engagement rate with content',
+            'Which posts have the most saves and shares?',
+            'Show me Instagram posts sorted by engagement with content visible'
+          ]
+        };
+      }
+    }
+
+    // V4.4 ADDITION: Check for "what are people saying/complaining about" queries
+    const complaintAnalysisPattern = /\b(complain(ing|t(s)?)|saying|talking)\s+about\b|what\s+are\s+(people|users|customers).*\b(say(ing)?|complain(ing)?|about)\b/i;
+    if (complaintAnalysisPattern.test(query)) {
+      const hasCommentText = metadata.columns && metadata.columns.comment_text;
+
+      if (hasCommentText) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: 'Topic extraction from comments requires NLP text analysis.',
+          explanation: 'The dataset has comment_text, but I cannot automatically extract and categorize complaint topics or discussion themes from text. I can show you negative comments, but you\'ll need to manually review the actual complaint topics.',
+          alternatives: [
+            {
+              option: 'Show me negative sentiment comments sorted by platform',
+              description: 'See all negative feedback grouped by platform for manual review'
+            },
+            {
+              option: 'Show me comments with negative sentiment and lowest scores',
+              description: 'Most negative comments across all platforms'
+            },
+            {
+              option: 'Show me platform with most negative comments',
+              description: 'Identify which platform has the most negative sentiment'
+            }
+          ],
+          suggestedQueries: [
+            'Which platform has the most negative sentiment comments?',
+            'Show me all negative comments sorted by sentiment score',
+            'Compare negative sentiment counts across platforms'
+          ]
+        };
+      }
+    }
+
+    // V4.5 ADDITION: Check for content generation requests
+    const contentGenerationPattern = /\b(draft|write|create|generate)\s+(post(s)?|content|idea(s)?|caption(s)?|copy|text)/i;
+    if (contentGenerationPattern.test(query)) {
+      return {
+        valid: false,
+        reason: 'Content generation is not supported.',
+        explanation: 'I can analyze your social media performance data, but I cannot generate new post ideas, captions, or content. I focus on data analysis, not content creation.',
+        alternatives: [
+          {
+            option: 'Show me top performing posts for inspiration',
+            description: 'See what content resonated best with your audience'
+          },
+          {
+            option: 'Show me best performing content types by platform',
+            description: 'Understand which formats work best'
+          },
+          {
+            option: 'Analyze engagement patterns for guidance',
+            description: 'Get insights on what drives engagement'
+          }
+        ],
+        suggestedQueries: [
+          'What type of content performs best on Instagram?',
+          'Show me top 10 posts by engagement',
+          'Which content formats drive the most engagement?'
+        ]
+      };
+    }
+
+    // V4.6 ADDITION: Check for "common attributes" pattern detection queries
+    const patternDetectionPattern = /\bcommon\s+(attribute(s)?|pattern(s)?|feature(s)?|characteristic(s)?)\b|\bwhat.*\bshare\b|\bsimilar(ities|ity)\b/i;
+    if (patternDetectionPattern.test(query)) {
+      return {
+        valid: false,
+        needsClarification: true,
+        reason: 'Pattern detection requires advanced analysis beyond filtering and sorting.',
+        explanation: 'I can show you top results, but I cannot automatically detect patterns or common attributes across them. You\'ll need to manually review the results to identify commonalities.',
+        alternatives: [
+          {
+            option: 'Show me the requested data without pattern analysis',
+            description: 'Get the filtered results for manual pattern review'
+          },
+          {
+            option: 'Show me results grouped by key dimensions',
+            description: 'Group by platform, format, audience, etc. to spot patterns'
+          },
+          {
+            option: 'Rephrase to ask for specific attributes',
+            description: 'Ask about specific metrics or dimensions instead of "common" patterns'
+          }
+        ],
+        suggestedQueries: [
+          'Show me top campaigns grouped by ad format',
+          'Show me top campaigns grouped by target audience',
+          'List the top results with all their attributes visible'
+        ]
+      };
+    }
+
     // V4.3 ADDITION: Generic complexity detection (catch-all for unhandled complex queries)
 
+    // Check if sentiment data is available in the dataset
+    const hasSentimentData = metadata.columns && (
+      metadata.columns.label || // sentiment label column
+      metadata.columns.sentiment ||
+      metadata.columns.comment_text || // comments with text
+      (metadata.files && metadata.files.some(f =>
+        f.name.includes('sentiment') || f.name.includes('comment')
+      ))
+    );
+
+    // Check for language-specific sentiment queries BEFORE skipping complexity detection
+    const languagePatterns = /hindi|hinglish|tamil|telugu|bengali|marathi|gujarati|kannada|malayalam|punjabi|urdu|arabic|chinese|japanese|korean|spanish|french|german|italian|portuguese|russian/i;
+    if (isSentimentQuery && languagePatterns.test(query)) {
+      // CRITICAL FIX: metadata.columns is a Set, not an object
+      // Check using Array.from() or metadata.uniqueValues instead
+      const hasLanguageColumn = metadata.uniqueValues && metadata.uniqueValues.language;
+      const availableLanguages = (metadata.uniqueValues && metadata.uniqueValues.language) || [];
+
+      // Check if the specific language is in the dataset
+      const mentionedLanguage = query.match(languagePatterns);
+      const languageInData = mentionedLanguage && availableLanguages.some(lang =>
+        lang && lang.toLowerCase().includes(mentionedLanguage[0].toLowerCase())
+      );
+
+      if (!hasLanguageColumn) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: 'Language-specific sentiment analysis is not available.',
+          explanation: 'The dataset has sentiment data but does not include language classification. I can show you all sentiment data, but cannot filter by specific languages.',
+          alternatives: [
+            {
+              option: 'Show me all negative comments for Instagram',
+              description: 'View all negative feedback without language filtering'
+            },
+            {
+              option: 'Show me all comments for Instagram grouped by detected language',
+              description: 'See what languages are in the data'
+            },
+            {
+              option: 'Show me all Instagram sentiment summary',
+              description: 'Overall sentiment breakdown for Instagram'
+            }
+          ],
+          suggestedQueries: [
+            'Show me negative sentiment comments for Instagram',
+            'What is the overall sentiment for Instagram posts?',
+            'Show me all comments grouped by platform and sentiment'
+          ]
+        };
+      }
+
+      if (!languageInData) {
+        return {
+          valid: false,
+          needsClarification: true,
+          reason: `${mentionedLanguage ? mentionedLanguage[0] : 'The specified language'} comments may not be available in the dataset.`,
+          explanation: `The dataset has language detection but ${mentionedLanguage ? mentionedLanguage[0] : 'the language you specified'} was not found. Available languages: ${availableLanguages.join(', ')}`,
+          alternatives: [
+            {
+              option: 'Show me all sentiment data for Instagram',
+              description: 'View all available comments regardless of language'
+            },
+            {
+              option: `Show me comments in: ${availableLanguages.slice(0, 3).join(', ')}`,
+              description: 'Filter by languages actually in the dataset'
+            },
+            {
+              option: 'Show me sentiment grouped by language and platform',
+              description: 'See which languages have comments'
+            }
+          ],
+          suggestedQueries: availableLanguages.map(lang =>
+            `Show me ${lang} sentiment for Instagram`
+          ).concat([
+            'Show me all Instagram sentiment summary',
+            'What languages are in the comment data?'
+          ])
+        };
+      }
+    }
+
+    // Skip complexity detection entirely for sentiment queries when sentiment data is available
+    if (isSentimentQuery && hasSentimentData) {
+      console.log('✅ Sentiment query detected with available sentiment data - skipping complexity checks');
+      return { valid: true };
+    }
+
+    // V4.7 ADDITION: Check for below-average/above-average filtering (requires multi-pass)
+    const averageComparisonPattern = /\b(below|above|under|over)[-\s]?(the\s+)?average\b/i;
+    if (averageComparisonPattern.test(query)) {
+      console.log('⚠️  Below-average/above-average pattern detected');
+      return {
+        valid: false,
+        needsClarification: true,
+        reason: 'Below-average/above-average filtering requires multi-pass data processing.',
+        explanation: 'I cannot dynamically calculate averages and then filter against them in a single query. The system would need to: (1) Calculate the average of all records, (2) Then filter records based on that average. This requires two separate operations.',
+        alternatives: [
+          {
+            option: 'Show me all posts sorted by the metric',
+            description: 'View all results sorted so you can identify above/below average manually'
+          },
+          {
+            option: 'Use a specific threshold value',
+            description: 'Provide an explicit number for filtering (e.g., "engagement rate > 5%")'
+          },
+          {
+            option: 'Ask for the average first',
+            description: 'Two-step approach: (1) "What is the average engagement?" (2) "Show posts with engagement > X"'
+          }
+        ],
+        suggestedQueries: [
+          'Show me all posts sorted by engagement rate descending',
+          'What is the average engagement rate for organic posts?',
+          'Show me posts with engagement rate > 5%',
+          'Show me bottom 10 posts by impressions'
+        ]
+      };
+    }
+
     const complexityIndicators = {
-      analysis: /correlat(e|ion)|predict|forecast|trend analysis|pattern detect|regression|statistical/i,
-      derivedMetrics: /virality|roi|coefficient|score|index|rating|sentiment|emotion|mood/i,
-      transformations: /adjust(ed)?|normaliz(e|ed)|weight(ed)?|factor|baseline|calibrat/i,
-      statistics: /percentile|quartile|distribution|variance|standard deviation|median/i,
-      segmentation: /cohort|segment|cluster|group analysis|categoriz/i,
-      causation: /causation|attribution|impact analysis|because|due to|caused by/i,
-      detection: /anomaly|outlier|unusual|irregular|abnormal/i,
-      nlp: /sentiment|emotion|tone|language|text analysis|keyword extract/i,
-      timeSeries: /seasonality|cyclical|periodic|year.over.year|yoy/i,
-      prediction: /will be|going to|future|next month|predict|expect/i
+      analysis: /correlat(e|ion)|regression|statistical\s+analysis|significance\s+test/i, // Removed "trend analysis", "pattern detect", "predict", "forecast"
+      derivedMetrics: /virality\s+score|coefficient|index\s+calculation/i, // More specific, removed generic "roi", "rating"
+      transformations: /normaliz(e|ed)|weight(ed)\s+average|baseline\s+adjust|calibrat/i, // Removed generic "adjust", "factor"
+      statistics: /percentile|quartile|distribution\s+analysis|variance\s+calculation|standard\s+deviation\s+analysis/i, // More specific
+      segmentation: /cohort\s+analysis|cluster(ing)?|segmentation\s+study/i, // Removed "categoriz", "group analysis"
+      causation: /^\s*why\s+(did|is|are|do|does)\b|what\s+caused|causal(ity)?|attribution\s+model|impact\s+study/i, // Only match "why" at START of question
+      detection: /anomaly\s+detection|outlier\s+detection|unusual\s+pattern/i, // More specific
+      // Only flag NLP if sentiment data is NOT available
+      // ADDED: hashtag, keyword (standalone), theme detection
+      nlp: hasSentimentData ? null : /\bhashtag(s)?\b|\bkeyword(s)?\b(?!\s+like)|\btheme(s)?\b|text\s+mining|keyword\s+extraction|topic\s+modeling|language\s+processing/i,
+      timeSeries: /seasonality\s+adjust|cyclical\s+pattern|year.over.year\s+growth/i, // More specific
+      prediction: /forecast(ing)?|predict(ive)?\s+model|future\s+projection/i // More specific
     };
 
     // Check if query matches any complexity indicator
@@ -537,6 +945,9 @@ class FilterGenerator {
     let matchedPattern = null;
 
     for (const [category, pattern] of Object.entries(complexityIndicators)) {
+      // Skip if pattern is null (e.g., NLP when sentiment data is available)
+      if (!pattern) continue;
+
       if (pattern.test(query)) {
         matchedCategory = category;
         matchedPattern = pattern;
@@ -635,11 +1046,42 @@ class FilterGenerator {
     // PATCH: Early detection of comparison queries to prevent mis-classification
     // ═══════════════════════════════════════════════════════════════════════════
     const lowerQuery = userQuery.toLowerCase();
-    const isComparisonQuery = (lowerQuery.includes(' vs ') ||
-      lowerQuery.includes(' versus ') ||
-      (lowerQuery.includes('compare') && lowerQuery.includes(' and '))) &&
-      (lowerQuery.includes('organic') || lowerQuery.includes('ads') ||
-        lowerQuery.includes('paid') || lowerQuery.includes('platform'));
+
+    // Expanded comparison patterns to catch more variations
+    const comparisonPatterns = [
+      ' vs ',
+      ' vs. ',
+      ' versus ',
+      'compared to',
+      'compared with',
+      'compare ',
+      'comparison',
+      'performing compared',
+      'performance compared',
+      ' than ', // "better than", "higher than"
+      'against'
+    ];
+
+    const hasComparisonKeyword = comparisonPatterns.some(pattern =>
+      lowerQuery.includes(pattern)
+    );
+
+    // Platform/content context (broader than before)
+    const hasComparisonContext =
+      lowerQuery.includes('organic') ||
+      lowerQuery.includes('ads') ||
+      lowerQuery.includes('paid') ||
+      lowerQuery.includes('platform') ||
+      lowerQuery.includes('facebook') ||
+      lowerQuery.includes('instagram') ||
+      lowerQuery.includes('twitter') ||
+      lowerQuery.includes('linkedin') ||
+      lowerQuery.includes('google') ||
+      lowerQuery.includes('video') ||
+      lowerQuery.includes('image') ||
+      lowerQuery.includes('carousel');
+
+    const isComparisonQuery = hasComparisonKeyword && hasComparisonContext;
 
     if (isComparisonQuery) {
       console.log('🔧 PATCH: Comparison query detected - using specialized handling');
@@ -661,6 +1103,12 @@ class FilterGenerator {
         explanation: validation.explanation,
         availablePlatforms: validation.availablePlatforms,
         suggestedQueries: validation.suggestedQueries || [],
+        alternatives: validation.alternatives,
+        options: validation.options,
+        suggestedActions: validation.suggestedActions,
+        helpfulContext: validation.helpfulContext,
+        dataAvailable: validation.dataAvailable,
+        dataNotAvailable: validation.dataNotAvailable,
         interpretation: "Query is outside the scope of available data or requires clarification"
       };
     }
@@ -822,17 +1270,23 @@ AGGREGATION RULES:
 ⚠️ FIX 2: CRITICAL DATE HANDLING RULES
 ═══════════════════════════════════════════════════════════
 
-- Current date: ${new Date().toISOString().split('T')[0]}
+- Current date: ${new Date().toISOString().split('T')[0]} (Year ${new Date().getFullYear()})
+- **IMPORTANT**: The dataset contains historical data from 2025
 - Date format in dataset: DD-MM-YYYY (e.g., "07-11-2025", "15-09-2025")
 - Date column name: "posted_date"
 
 ⚠️ CRITICAL: Always use "contains" operator for date matching, NEVER use "equals"
 
-QUARTER TO MONTH MAPPING:
-- Q1 2025 = January-March 2025 = "01-2025", "02-2025", "03-2025"
-- Q2 2025 = April-June 2025 = "04-2025", "05-2025", "06-2025"  
-- Q3 2025 = July-September 2025 = "07-2025", "08-2025", "09-2025"
-- Q4 2025 = October-December 2025 = "10-2025", "11-2025", "12-2025"
+QUARTER TO MONTH MAPPING (Default to 2025 unless user specifies year):
+- Q1 = January-March = "01-YYYY", "02-YYYY", "03-YYYY"
+- Q2 = April-June = "04-YYYY", "05-YYYY", "06-YYYY"
+- Q3 = July-September = "07-YYYY", "08-YYYY", "09-YYYY"
+- Q4 = October-December = "10-YYYY", "11-YYYY", "12-YYYY"
+
+**YEAR HANDLING:**
+- If user mentions a specific year (e.g., "Q3 2025" or "November 2026"), use that year
+- If no year specified, default to 2025 (the year of the dataset)
+- Extract year from query using pattern: /\b(202[0-9]|203[0-9])\b/
 
 HOW TO FILTER BY QUARTER (USE OR LOGIC) - CRITICAL:
 
@@ -891,7 +1345,7 @@ CORRECT:
   ]
 }
 
-Example: "Last quarter" (assuming current date is Dec 2025, last quarter = Q3)
+Example: "Last quarter" (Data is from 2025, so use 2025 quarters)
 CORRECT:
 {
   "type": "or",
@@ -902,9 +1356,21 @@ CORRECT:
   ]
 }
 
+Example: "Q1 2026 performance" (User specified 2026)
+CORRECT:
+{
+  "type": "or",
+  "conditions": [
+    {"column": "posted_date", "operator": "contains", "value": "01-2026"},
+    {"column": "posted_date", "operator": "contains", "value": "02-2026"},
+    {"column": "posted_date", "operator": "contains", "value": "03-2026"}
+  ]
+}
+
 HOW TO FILTER BY SINGLE MONTH:
 November 2025: {"column": "posted_date", "operator": "contains", "value": "11-2025"}
 September 2025: {"column": "posted_date", "operator": "contains", "value": "09-2025"}
+November (no year): {"column": "posted_date", "operator": "contains", "value": "11-2025"} (default to 2025)
 
 HOW TO FILTER BY DATE RANGE (Multiple Months):
 Use OR logic:
@@ -936,7 +1402,97 @@ CONTENT TYPE / POST TYPE HANDLING:
   * "Which post type performs best?" → Group by "media_type"
   * "Worst performing post type" → Group by "media_type", sort by engagement_rate ascending
   * "Compare carousel vs video posts" → Filter media_type in ["carousel", "video"]
-- For ads data (Facebook Ads, Google Ads, etc.), there is NO media_type - these have campaign_type instead
+- For ADS data (Facebook Ads, Google Ads, Instagram Ads):
+  * Use "ad_format" column for format (Carousel, Stories, Video, Single Image, Collection)
+  * Do NOT use "media_type" for ads (that is for organic posts only)
+  * Example: "Which ad format has lowest cost?" → Group by "ad_format", aggregate cost_per_conversion
+
+SENTIMENT / FEEDBACK / COMMENT ANALYSIS:
+
+🚨 CRITICAL DISTINCTION - READ THIS FIRST:
+When user asks about "SENTIMENT SCORES" they mean the AI-generated sentiment confidence scores (0.0-1.0)
+When user asks about "ENGAGEMENT" they mean likes, comments, shares, engagement_rate
+THESE ARE COMPLETELY DIFFERENT! DO NOT CONFUSE THEM!
+
+- The dataset includes sentiment analysis data from comments in a SEPARATE file from posts
+- Available sentiment columns: "label" (positive/negative/neutral), "score" (confidence 0-1), "comment_text", "comment_id", "platform", "post_id"
+- The "score" column represents the AI model's confidence level of the sentiment classification (0.0 to 1.0)
+  * score = 0.9484 means 94.84% confident this is negative sentiment
+  * score = 0.7429 means 74.29% confident this is negative sentiment
+  * Higher score = more confident classification
+- **CRITICAL**: To query ONLY sentiment data, you MUST filter for records that have a "comment_id" column OR "label" column
+  * Sentiment records have: comment_id, post_id, comment_text, label, score, platform
+  * Post records have: likes, engagement_rate, reach, impressions (but NO comment_id or label or score)
+  * If you don't filter properly, you'll mix post and sentiment data together
+- Sentiment data is linked to posts via "post_id" column and INCLUDES platform information
+- **IMPORTANT**: When showing comments/feedback, ALWAYS include the "platform" column in groupBy or limit results to preserve platform context
+- When user asks about "feedback", "complaints", "sentiment", "negative/positive comments", use the sentiment data
+
+SENTIMENT SCORE PRIORITIZATION:
+- When user asks "which posts to reply to first based on sentiment scores", they typically mean:
+  * **HIGH NEGATIVE SCORES** = Urgent complaints/issues needing response (filter: label="negative", sort by score DESC)
+  * **HIGH POSITIVE SCORES** = Strong positive feedback to engage with (filter: label="positive", sort by score DESC)
+  * Default interpretation: Prioritize NEGATIVE comments with high scores (complaints need urgent attention)
+- "Sentiment score" queries should sort by the "score" column, NOT engagement_rate
+- **CRITICAL**: Sentiment data is in a SEPARATE file from post data. To query sentiment:
+  * You MUST NOT group by or aggregate on engagement metrics
+  * Focus on columns: post_id, comment_text, label, score, platform
+  * Sort by "score" column (sentiment confidence), NOT engagement_rate
+- Examples:
+  * "Which posts should I reply to based on sentiment?" → Filter label="negative", sort by score DESC, limit N
+  * "Top 3 posts by sentiment score" → Filter label="negative", sort by score DESC, limit 3
+  * "Posts with strongest negative sentiment" → Filter label="negative", sort by score DESC
+
+⚠️ CRITICAL EXAMPLE for "which 3 posts to reply to based on sentiment scores":
+
+WRONG APPROACH - DO NOT DO THIS:
+❌ {
+  "filters": [{"column": "label", "operator": "equals", "value": "negative"}],
+  "groupBy": ["post_id"],  // ❌ WRONG - This aggregates and loses individual comments
+  "aggregate": {"score": "mean"},  // ❌ WRONG - We want individual scores, not averages
+  "sortBy": {"column": "score_mean", "order": "desc"}
+}
+
+CORRECT APPROACH - DO THIS:
+✅ {
+  "filters": [
+    {
+      "column": "label",
+      "operator": "equals",
+      "value": "negative",
+      "reason": "Focus on negative sentiment (complaints needing replies)"
+    }
+  ],
+  "groupBy": [],  // ⚠️ CRITICAL: Leave EMPTY - No grouping at all!
+  "aggregate": {},  // ⚠️ CRITICAL: Leave EMPTY - No aggregation at all!
+  "sortBy": {
+    "column": "score",  // ✅ CORRECT - Sort by sentiment score column
+    "order": "desc"
+  },
+  "limit": 3,
+  "interpretation": "Finding top 3 negative comments with highest sentiment confidence scores"
+}
+
+EXPECTED RESULT: 3 individual comment records like:
+[
+  {comment_id: "C_0004", post_id: "POST_0003", comment_text: "Worst service ever...", label: "negative", score: 0.9484, platform: "Twitter"},
+  {comment_id: "C_0002", post_id: "POST_0001", comment_text: "Price is a bit high...", label: "negative", score: 0.7429, platform: "Facebook"}
+]
+
+NOT: A single aggregated row with mean score and engagement_rate!
+If you return aggregated data or engagement metrics, you did it WRONG!
+
+GENERAL SENTIMENT EXAMPLES:
+  * "Which platform has the most negative feedback?" → Filter label = "negative", group by platform, count
+  * "What are people complaining about?" → Filter label = "negative", group by ["platform", "comment_text"] to show which platform each complaint is from
+  * "Most positive sentiment platform?" → Filter label = "positive", group by platform, count
+  * "Show me negative comments" → Filter label = "negative", group by ["platform", "comment_text"] OR just limit results to include platform
+  * "Extract themes from negative feedback" → Filter label = "negative", group by ["platform", "comment_text"] to preserve platform context
+  * "Posts to reply to based on sentiment scores" → Filter label="negative", sort by score DESC, limit N
+
+- **CRITICAL**: Never lose platform context when analyzing comments - include platform in groupBy when showing individual comments
+- **CRITICAL**: When user mentions "sentiment score", sort by the "score" column, NOT engagement_rate or other metrics
+- Sentiment labels are: "positive", "negative", "neutral" (lowercase)
 
 AMBIGUOUS QUERY HANDLING:
 If a query is ambiguous or missing critical information, set "needsClarification": true and provide options.
@@ -958,7 +1514,9 @@ If a query contains "[Selected: ...]" at the end, extract the selection and proc
 - Make reasonable assumptions based on the selected option rather than asking for more clarification
 - If the query references data that doesn't exist (like day_type), return needsClarification with explanation
 
-When needsClarification is true, include:
+When needsClarification is true, you MUST return a structured clarification request.
+
+Example for ambiguous "best post" query:
 {
   "needsClarification": true,
   "clarificationNeeded": "What metric should I use to determine 'best'?",

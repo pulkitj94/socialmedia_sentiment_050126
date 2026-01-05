@@ -302,6 +302,8 @@ function InsightsPanel({ insights }) {
           <h4 className="text-sm font-semibold text-green-900 mb-3">📈 Statistics</h4>
           <div className="space-y-3">
             {Object.entries(insights.statistics).map(([key, stats]) => {
+              if (!stats) return null;
+
               // Check if all values are the same (single record case)
               const isSingleRecord = stats.count === 1 ||
                 (stats.min === stats.max && stats.max === stats.average);

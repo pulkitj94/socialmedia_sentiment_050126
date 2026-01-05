@@ -418,7 +418,7 @@ colors: {
 }
 ```
 
-See `CUSTOMIZATION_GUIDE.md` for detailed instructions.
+See `docs/guides/CUSTOMIZATION_GUIDE.md` for detailed instructions.
 
 ---
 
@@ -545,8 +545,11 @@ social-media-analytics-platform/
 │   └── mock_streamer.py            # Data simulation (normal/crisis/viral)
 │
 ├── README.md                        # This file
-├── CUSTOMIZATION_GUIDE.md          # Detailed customization
-├── DEPLOYMENT_GUIDE.md             # Production deployment
+├── docs/                            # Documentation
+│   ├── guides/                      # User & Setup Guides
+│   │   ├── CUSTOMIZATION_GUIDE.md
+│   │   └── DEPLOYMENT_GUIDE.md
+│   └── reports/                     # Analysis & Dev Reports
 └── .gitignore
 ```
 
@@ -607,7 +610,7 @@ MIT License - Feel free to use for your project!
 3. Verify OpenAI API key and credits
 
 **Questions?**
-- Review `CUSTOMIZATION_GUIDE.md` for modification instructions
+- Review `docs/guides/CUSTOMIZATION_GUIDE.md` for modification instructions
 - Check code comments marked with `// ✏️ CUSTOMIZE`
 
 ---

@@ -1,0 +1,144 @@
+comment_id,post_id,user_handle,comment_text,timestamp
+C_0001,POST_0001,user_123,This is exactly what I was looking for! 💚,2025-11-07 10:00:00
+C_0002,POST_0001,user_456,Price is a bit high for me,2025-11-07 11:30:00
+C_0003,POST_0002,user_888,Ekdum mast product hai! 👌,2025-11-07 12:00:00
+C_0004,POST_0003,user_221,Worst service ever. No reply to my DMs.,2025-11-07 12:15:00
+C_0005,POST_0003,user_999,The app keeps crashing when I try to checkout. Very bad experience!,2026-01-03 14:00:00
+C_0006,POST_0002,user_444,Delivery was delayed by 2 weeks. I want a refund now.,2026-01-03 14:30:00
+C_0007,POST_0001,user_111,I received a broken item. Support is not picking up the call.,2026-01-03 15:00:00
+C_0008,POST_0004,user_777,Does this come in Blue color? Love the design btw.,2026-01-03 15:15:00
+C_6086,POST_0001,digital_nomad,"Ekdum mast product hai, fast delivery.",2026-01-03 18:45:50
+C_6310,POST_0003,digital_nomad,"Decent product, but packaging could be better.",2026-01-03 18:51:52
+C_7324,POST_0002,eco_warrior,"Ekdum mast product hai, fast delivery.",2026-01-04 12:20:56
+C_8784,POST_0002,user_682,1. Website crash ruined my order 😡 Fix your servers!,2026-01-04 13:11:32
+C_6834,POST_0004,user_444,"2. Received broken items 😠 Unacceptable, replace immediately!",2026-01-04 13:11:32
+C_6969,POST_0003,user_231,3. Shipping delay caused missed event 🤬 Refund for inconvenience ASAP.,2026-01-04 13:11:32
+C_5065,POST_0001,user_984,"1. OMG, the new sustainable collection is everything I've been waiting for! 🌿♻️ Love this!",2026-01-04 13:35:44
+C_8828,POST_0003,user_804,"2. Finally, a brand that cares about the planet as much as I do! 🌎🙌",2026-01-04 13:35:44
+C_5905,POST_0002,user_263,3. This collection is giving me life! Can't wait to shop 'til I drop! 💚🛍️,2026-01-04 13:35:44
+C_8644,POST_0003,user_446,4. Sustainable fashion goals! My closet is about to get a major upgrade. 🌱💃,2026-01-04 13:35:44
+C_8263,POST_0001,user_200,"5. Eek, so excited for this eco-friendly goodness! It's about time! 🌿🎉",2026-01-04 13:35:44
+C_9661,POST_0004,user_218,6. Thank you for making sustainable fashion look so chic! Obsessed. 💁‍♀️🌟,2026-01-04 13:35:44
+C_9819,POST_0003,user_211,7. My heart is bursting with joy over this collection! So much love! 💖🌿,2026-01-04 13:35:44
+C_8245,POST_0003,user_788,"8. Brb, crying tears of joy over this sustainable fashion dream come true. 😭💚",2026-01-04 13:35:44
+C_5081,POST_0001,user_513,9. Squealing with excitement over the launch of this amazing sustainable collection! 🙊🙌,2026-01-04 13:35:44
+C_6658,POST_0002,user_849,10. Consider me officially obsessed with everything in this eco-friendly line! Yasss! 🌿💫,2026-01-04 13:35:44
+C_7905,POST_0001,user_858,1. Website crash ruined my order! 😡,2026-01-04 13:40:10
+C_7686,POST_0003,user_381,"2. Broken items received, unacceptable! 😠",2026-01-04 13:40:10
+C_5144,POST_0004,user_992,3. Shipping delay caused major inconvenience. 😤,2026-01-04 13:40:10
+C_7144,POST_0004,user_419,"4. Unreliable service, disappointed with this brand. 😡",2026-01-04 13:40:10
+C_9203,POST_0003,user_974,5. Frustrated by poor customer experience. 😠,2026-01-04 13:40:10
+C_5874,POST_0004,user_820,1. Love the eco-friendly options! 💚,2026-01-04 13:41:01
+C_9551,POST_0003,user_412,2. Great selection of organic materials. 👌,2026-01-04 13:41:01
+C_6509,POST_0004,user_348,3. Sustainable fashion never looked so good! 😍,2026-01-04 13:41:01
+C_9051,POST_0002,user_759,4. Can't wait to rock these stylish pieces! 💃,2026-01-04 13:41:01
+C_8357,POST_0004,user_527,5. Kya cool collection hai! ♻️,2026-01-04 13:41:01
+C_5226,POST_0002,user_344,"6. Finally, trendy clothes that are good for the planet! 🌍",2026-01-04 13:41:01
+C_7645,POST_0003,user_355,7. Loving the earth-friendly vibes. 🌿,2026-01-04 13:41:01
+C_5300,POST_0001,user_637,8. Sustainable fashion is the way to go! 👏,2026-01-04 13:41:01
+C_7529,POST_0002,user_968,9. Excited to support this eco-conscious brand. 🙌,2026-01-04 13:41:01
+C_7050,POST_0004,user_974,10. Time to update my wardrobe with sustainable finds. 🛍,2026-01-04 13:41:01
+C_8554,POST_0004,user_767,1. Website crashed during checkout 😡,2026-01-04 13:43:01
+C_9568,POST_0001,user_866,2. Items arrived broken 😠,2026-01-04 13:43:01
+C_5061,POST_0002,user_553,3. Shipping delayed without notice 🤬,2026-01-04 13:43:01
+C_5899,POST_0002,user_571,4. Can't track package 😤,2026-01-04 13:43:01
+C_9587,POST_0001,user_171,5. Customer service unreachable 🤯,2026-01-04 13:43:01
+C_5603,POST_0004,user_353,1. OMG! 🌿 Sustainable fashion is everything! Love this! ♻️,2026-01-04 13:43:46
+C_6212,POST_0004,user_528,2. Yasss! Finally a brand doing their part for the planet. 🌎,2026-01-04 13:43:46
+C_7300,POST_0002,user_365,3. This collection is a dream come true. Can't wait to shop! 💚,2026-01-04 13:43:46
+C_9769,POST_0002,user_584,4. Eeek! So excited for sustainable options. Thank you! 🙌,2026-01-04 13:43:46
+C_6141,POST_0002,user_605,5. My eco-friendly heart is so happy right now. 💕🌱,2026-01-04 13:43:46
+C_5465,POST_0001,user_870,6. Saving the Earth in style! Obsessed with this collection. 🌟,2026-01-04 13:43:46
+C_7303,POST_0003,user_451,7. Sustainable fashion for the win! Loving all of it. 🌿💫,2026-01-04 13:43:46
+C_5113,POST_0001,user_678,8. Time to upgrade my wardrobe with these eco-friendly pieces. 🛍️♻️,2026-01-04 13:43:46
+C_7227,POST_0004,user_661,"9. Finally, a brand that gets it - sustainability is key! 🌍💖",2026-01-04 13:43:46
+C_5912,POST_0001,user_434,10. My sustainability-loving heart can't handle the excitement. Obsessed! 🌸✨,2026-01-04 13:43:46
+C_6030,POST_0004,user_534,"1. Omg, so excited for this sustainable collection launch! ♻️🌿 Love this!",2026-01-04 13:46:56
+C_7722,POST_0003,user_400,"2. Finally, a brand that is thinking about the planet! 🌎🌟💚",2026-01-04 13:46:56
+C_8447,POST_0002,user_132,3. Yasss! Can't wait to get my hands on these eco-friendly pieces! 🙌🌿♻️,2026-01-04 13:46:56
+C_5249,POST_0004,user_929,4. Eco-chic is my new aesthetic now! 🌱✨👗,2026-01-04 13:46:56
+C_9489,POST_0002,user_271,5. Sustainable fashion for the win! 🏆🍃💃,2026-01-04 13:46:56
+C_5406,POST_0003,user_521,6. This collection gives me life! 🙏♻️💕,2026-01-04 13:46:56
+C_7378,POST_0002,user_374,7. Thank you for making a difference in the fashion industry! 🙌🌸🌍,2026-01-04 13:46:56
+C_9440,POST_0002,user_681,8. Counting down the days until I can shop this amazing collection! ⏳💚😍,2026-01-04 13:46:56
+C_6595,POST_0001,user_593,9. My heart is so full knowing that sustainable fashion is becoming mainstream! 🥰♻️🌟,2026-01-04 13:46:56
+C_6381,POST_0002,user_596,10. Literally screaming over this collection! 😱💚🌿,2026-01-04 13:46:56
+C_9013,POST_0001,user_286,"1. OMG, sustainable fashion goals! 😍♻️ Love this!",2026-01-04 13:49:00
+C_6831,POST_0002,user_705,2. We've been waiting for this! 🙌🏼 Finally! So good. ♻️💚,2026-01-04 13:49:00
+C_9455,POST_0002,user_886,3. The collection is 🔥🔥🔥. So excited to shop! ♻️😍,2026-01-04 13:49:00
+C_7157,POST_0002,user_651,4. This is a total game-changer! ♻️💫 Love this!,2026-01-04 13:49:00
+C_7018,POST_0002,user_195,"5. It's about time! 🎉♻️ Finally, a sustainable collection we deserve!",2026-01-04 13:49:00
+C_6837,POST_0002,user_336,6. Just in time for Earth Day! 🌎🌿 Love this! ♻️,2026-01-04 13:49:00
+C_7915,POST_0004,user_301,7. Sustainable fashion never looked so good! 😍♻️ Finally!,2026-01-04 13:49:00
+C_9725,POST_0001,user_904,8. A dream come true! 🌟♻️ Love this!,2026-01-04 13:49:00
+C_8222,POST_0004,user_354,"9. My heart is so full! 🥰♻️ Finally, a sustainable collection!",2026-01-04 13:49:00
+C_5216,POST_0004,user_381,10. This launch is everything! 💥♻️ Love this!,2026-01-04 13:49:00
+C_8785,POST_0003,user_861,1. Love the eco-friendly fabrics used! 🌿,2026-01-04 14:00:02
+C_9584,POST_0004,user_678,2. Sustainable fashion at its best! 👗♻️,2026-01-04 14:00:02
+C_8961,POST_0001,user_864,3. Swadeshi brand with global appeal. 🇮🇳,2026-01-04 14:00:02
+C_5274,POST_0003,user_671,4. Perfect balance of style and sustainability. 👌🌍,2026-01-04 14:00:02
+C_7549,POST_0001,user_781,5. Proud to support such a conscious brand. 💚🙌,2026-01-04 14:00:02
+C_8678,POST_0002,user_504,1. Love the organic cotton you use! ♻️,2026-01-04 15:00:01
+C_9226,POST_0002,user_768,2. Sustainable fashion ftw! 🌿,2026-01-04 15:00:01
+C_7361,POST_0001,user_173,3. Yeh kapde kitne comfy hain! 😍,2026-01-04 15:00:01
+C_9034,POST_0004,user_609,4. Keep up the eco-friendly work! 🌎,2026-01-04 15:00:01
+C_5810,POST_0001,user_344,5. I appreciate your commitment to ethical fashion. 👏,2026-01-04 15:00:01
+C_8805,POST_0003,user_529,- Website crashed during checkout! 😡,2026-01-04 15:38:29
+C_8543,POST_0001,user_453,- My item arrived broken. Unacceptable! 😠,2026-01-04 15:38:29
+C_5923,POST_0001,user_712,- Shipping delayed again. Not impressed. 👎,2026-01-04 15:38:29
+C_5713,POST_0001,user_389,- Can't access my account due to website crash. 😠,2026-01-04 15:38:29
+C_9879,POST_0004,user_255,- Waiting months for my order. Unacceptable service. 😤,2026-01-04 15:38:29
+C_8713,POST_0004,user_142,1. Love the vibrant colors in your collection! 🌈,2026-01-04 18:00:02
+C_7272,POST_0003,user_729,2. Great to see eco-friendly options. Keep it up! ♻️,2026-01-04 18:00:02
+C_5317,POST_0003,user_323,3. Can't wait to rock these sustainable threads. 🌿,2026-01-04 18:00:02
+C_8709,POST_0001,user_173,4. Stylish and sustainable - a perfect combo! 👗,2026-01-04 18:00:02
+C_9070,POST_0001,user_745,5. Your brand is making a positive impact. Kudos! 🌍,2026-01-04 18:00:02
+C_7810,POST_0004,user_981,1. Website crashed during checkout 😡.,2026-01-04 19:36:49
+C_7787,POST_0003,user_906,"2. Received broken items, no response from customer service 😠.",2026-01-04 19:36:49
+C_8964,POST_0001,user_594,"3. Shipping delayed for weeks, missed important event 😤.",2026-01-04 19:36:49
+C_7342,POST_0004,user_118,4. Can't access account due to repeated errors 😡.,2026-01-04 19:36:49
+C_5387,POST_0002,user_386,"5. No updates on order status, frustrated with lack of communication 😠.",2026-01-04 19:36:49
+C_5920,POST_0002,user_270,1. Love the sustainable options! ♻️,2026-01-05 20:00:04
+C_5732,POST_0004,user_511,2. Yeh clothes kitne stylish hai! 😍,2026-01-05 20:00:04
+C_7043,POST_0003,user_509,3. Ethical fashion ftw! 🌿,2026-01-05 20:00:04
+C_6936,POST_0002,user_681,4. So happy to support eco-friendly brands. 💚,2026-01-05 20:00:04
+C_5887,POST_0002,user_239,5. Wardrobe goals met with these pieces! 🌸,2026-01-05 20:00:04
+C_8803,POST_0002,user_950,1. Love the eco-friendly vibes! 🌿,2026-01-05 21:00:02
+C_7004,POST_0001,user_726,2. Sustainable fashion goals! 💚,2026-01-05 21:00:02
+C_8814,POST_0004,user_401,3. Bahut stylish aur environment friendly clothes! 🌍,2026-01-05 21:00:02
+C_5680,POST_0002,user_282,4. Perfect blend of fashion and sustainability. ♻️,2026-01-05 21:00:02
+C_7636,POST_0001,user_884,5. So happy to support a brand making a difference. ❤️,2026-01-05 21:00:02
+C_5120,POST_0002,user_282,"1. Website crashed, lost my order! Unacceptable 🤬",2026-01-05 21:51:08
+C_6109,POST_0002,user_241,"2. Items arrived broken, poor packaging 👎",2026-01-05 21:51:08
+C_8302,POST_0004,user_115,"3. Shipping delay, missed event, disappointed 😠",2026-01-05 21:51:08
+C_8763,POST_0003,user_712,"4. Can't access account, frustrating login issues 🤯",2026-01-05 21:51:08
+C_5209,POST_0003,user_183,"5. Customer service unresponsive, no help 😡",2026-01-05 21:51:08
+C_9257,POST_0001,user_734,"1. ""Website crashed during checkout, lost my order 😡""",2026-01-05 21:51:42
+C_9985,POST_0002,user_838,"2. ""Received broken items, never shopping here again 🤬""",2026-01-05 21:51:42
+C_6773,POST_0003,user_693,"3. ""Shipping delayed twice, terrible customer service 😠""",2026-01-05 21:51:42
+C_8692,POST_0003,user_340,"4. ""Lost in transit, no communication on status 🚫""",2026-01-05 21:51:42
+C_5770,POST_0004,user_265,"5. ""Worst online shopping experience ever, refund now 💢""",2026-01-05 21:51:42
+C_7357,POST_0002,user_615,1. Love the eco-friendly designs! ♻️,2026-01-05 22:00:02
+C_6799,POST_0004,user_603,,2026-01-05 22:00:02
+C_5642,POST_0004,user_730,2. Yeh toh #sustainablefashion hai! 👗,2026-01-05 22:00:02
+C_7913,POST_0002,user_551,,2026-01-05 22:00:02
+C_6751,POST_0004,user_567,3. Great to see more options for conscious consumers. 🌿,2026-01-05 22:00:02
+C_9161,POST_0003,user_577,,2026-01-05 22:00:02
+C_8884,POST_0001,user_975,4. The world needs more brands like this. 🙌,2026-01-05 22:00:02
+C_8204,POST_0004,user_229,,2026-01-05 22:00:02
+C_7593,POST_0001,user_893,5. Sustainable style for the win! 💚,2026-01-05 22:00:02
+C_9936,POST_0002,user_587,,2026-01-05 22:00:02
+C_6013,POST_0002,user_836,6. Kudos on promoting ethical fashion choices. 👏,2026-01-05 22:00:02
+C_5369,POST_0001,user_569,,2026-01-05 22:00:02
+C_5050,POST_0004,user_242,7. Wardrobe goals with a conscience. 🌎,2026-01-05 22:00:02
+C_5551,POST_0002,user_733,,2026-01-05 22:00:02
+C_8767,POST_0003,user_397,8. Time to switch to sustainable clothing options! 🌿,2026-01-05 22:00:02
+C_5747,POST_0004,user_707,,2026-01-05 22:00:02
+C_5246,POST_0003,user_528,9. Excited to support a brand making a positive impact. 🌟,2026-01-05 22:00:02
+C_7642,POST_0001,user_635,,2026-01-05 22:00:02
+C_7872,POST_0004,user_141,10. Can't wait to shop for guilt-free fashion! 💃,2026-01-05 22:00:02
+C_8050,POST_0003,user_212,1. Love the eco-friendly styles! ♻️,2026-01-05 23:00:02
+C_8498,POST_0002,user_916,2. Sustainable fashion goals! 🌿💚,2026-01-05 23:00:02
+C_7958,POST_0004,user_157,3. Neutral colors are so versatile. 👌,2026-01-05 23:00:02
+C_5411,POST_0002,user_486,"4. Comfy AND good for the earth? Yes, please! 🌍",2026-01-05 23:00:02
+C_7626,POST_0001,user_804,5. These pieces will never go out of style. 👗🌟,2026-01-05 23:00:02

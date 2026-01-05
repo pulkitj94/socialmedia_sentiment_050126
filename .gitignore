@@ -37,11 +37,11 @@ Thumbs.db
 *~
 
 # Data files (don't commit real data)
-/server/data/*.csv
-/server/data/*.json
-/server/data/*.txt
+# /server/data/*.csv
+# /server/data/*.json
+# /server/data/*.txt
 # Keep example/sample data
-!/server/data/campaign_performance.csv
+# !/server/data/campaign_performance.csv
 
 # Uploads
 uploads/

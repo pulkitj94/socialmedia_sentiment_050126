@@ -1,0 +1,32 @@
+[
+    {
+        "platform": "Facebook",
+        "health_score": 69.01,
+        "distribution": {
+            "positive": 64.8,
+            "neutral": 8.5,
+            "negative": 26.8
+        },
+        "total_comments": 71
+    },
+    {
+        "platform": "Instagram",
+        "health_score": 77.38,
+        "distribution": {
+            "positive": 73.8,
+            "neutral": 7.1,
+            "negative": 19.0
+        },
+        "total_comments": 42
+    },
+    {
+        "platform": "Twitter",
+        "health_score": 61.67,
+        "distribution": {
+            "positive": 60.0,
+            "neutral": 3.3,
+            "negative": 36.7
+        },
+        "total_comments": 30
+    }
+]
